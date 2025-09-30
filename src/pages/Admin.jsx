@@ -7,6 +7,8 @@ import UserDetailsModal from '../components/UserDetailsModal';
 import RegistrationFilters from '../components/RegistrationFilters';
 import Analytics from '../components/Analytics';
 import AdminSettings from '../components/AdminSettings';
+import SessionManagement from '../components/SessionManagement';
+import WorkshopManagement from '../components/WorkshopManagement';
 
 export default function Admin() {
   const [registrations, setRegistrations] = useState([]);
@@ -69,6 +71,16 @@ useEffect(() => {
           showInfo('Switched to Analytics tab', 2000);
           break;
         case '4':
+          e.preventDefault();
+          setActiveTab('sessions');
+          showInfo('Switched to Sessions tab', 2000);
+          break;
+        case '5':
+          e.preventDefault();
+          setActiveTab('workshops');
+          showInfo('Switched to Workshops tab', 2000);
+          break;
+        case '6':
           e.preventDefault();
           if (isSuperAdmin) {
             setActiveTab('superadmin');
@@ -636,14 +648,40 @@ useEffect(() => {
     );
   }
 
+  console.log(currentUser?.role);
+  
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <>
+      <style jsx>{`
+        .mobile-scroll-container::-webkit-scrollbar {
+          height: 6px;
+        }
+        .mobile-scroll-container::-webkit-scrollbar-track {
+          background: #f3f4f6;
+          border-radius: 3px;
+        }
+        .mobile-scroll-container::-webkit-scrollbar-thumb {
+          background: #d1d5db;
+          border-radius: 3px;
+        }
+        .mobile-scroll-container::-webkit-scrollbar-thumb:hover {
+          background: #9ca3af;
+        }
+        @media (min-width: 768px) {
+          .mobile-scroll-container::-webkit-scrollbar {
+            display: none;
+          }
+        }
+      `}</style>
+      <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white shadow">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-6">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Invicta Admin Dashboard</h1>
+              <p>{currentUser?.role}</p>
+              <h1 className="text-3xl font-bold text-gray-900">Invicta</h1>
               <p className="mt-1 text-sm text-gray-600">
                 Welcome, {currentUser?.displayName || currentUser?.email}
               </p>
@@ -655,7 +693,9 @@ useEffect(() => {
                   <span>⌘+1 Registrations</span>
                   <span>⌘+2 Settings</span>
                   <span>⌘+3 Analytics</span>
-                  {isSuperAdmin && <span>⌘+4 SuperAdmin</span>}
+                  <span>⌘+4 Sessions</span>
+                  <span>⌘+5 Workshops</span>
+                  {isSuperAdmin && <span>⌘+6 SuperAdmin</span>}
                   <span>⌘+E Export CSV</span>
                   <span>⌘+H Export HTML</span>
                 </div>
@@ -712,23 +752,30 @@ useEffect(() => {
             <nav className="-mb-px flex space-x-8">
               <button
                 onClick={() => setActiveTab('registrations')}
-                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center ${
                   activeTab === 'registrations'
                     ? 'border-indigo-500 text-indigo-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
-                Registrations ({filteredRegistrations.length})
+                <svg className="w-5 h-5 md:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+                <span className="hidden md:inline">Registrations ({filteredRegistrations.length})</span>
               </button>
               <button
                 onClick={handleSettingsClick}
-                className={`py-2 px-1 border-b-2 font-medium text-sm relative ${
+                className={`py-2 px-1 border-b-2 font-medium text-sm relative flex items-center ${
                   activeTab === 'settings'
                     ? 'border-indigo-500 text-indigo-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
-                Form Settings
+                <svg className="w-5 h-5 md:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <span className="hidden md:inline">Form Settings</span>
                 {!isSettingsUnlocked && (
                   <svg className="w-3 h-3 inline-block ml-1 text-red-500" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM9 6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9V6z"/>
@@ -737,13 +784,46 @@ useEffect(() => {
               </button>
               <button
                 onClick={() => setActiveTab('analytics')}
-                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center ${
                   activeTab === 'analytics'
                     ? 'border-indigo-500 text-indigo-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
-                📊 Analytics
+                <svg className="w-5 h-5 md:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                <span className="hidden md:inline">Analytics</span>
+              </button>
+              
+              {/* Sessions Tab */}
+              <button
+                onClick={() => setActiveTab('sessions')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center ${
+                  activeTab === 'sessions'
+                    ? 'border-purple-500 text-purple-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <svg className="w-5 h-5 md:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <span className="hidden md:inline">Sessions</span>
+              </button>
+              
+              {/* Workshops Tab */}
+              <button
+                onClick={() => setActiveTab('workshops')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center ${
+                  activeTab === 'workshops'
+                    ? 'border-teal-500 text-teal-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <svg className="w-5 h-5 md:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+                <span className="hidden md:inline">Workshops</span>
               </button>
               
               {/* SuperAdmin Tab - Only visible to SuperAdmins */}
@@ -753,13 +833,17 @@ useEffect(() => {
                     setActiveTab('superadmin');
                     loadAllUsers(); // Load users when switching to SuperAdmin tab
                   }}
-                  className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center ${
                     activeTab === 'superadmin'
                       ? 'border-red-500 text-red-600'
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                   }`}
                 >
-                  👑 SuperAdmin
+                  <svg className="w-5 h-5 md:mr-2" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M5 16L3 14l5.5-5.5L12 12l4.5-4.5L22 13l-2 2-5.5-5.5L12 12l-2.5-2.5L5 16z"/>
+                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                  </svg>
+                  <span className='hidden md:inline'>SuperAdmin</span>
                 </button>
               )}
             </nav>
@@ -1020,6 +1104,16 @@ useEffect(() => {
             <Analytics registrations={registrations} />
           )}
 
+          {/* Sessions Section */}
+          {activeTab === 'sessions' && (
+            <SessionManagement registrations={registrations} />
+          )}
+
+          {/* Workshops Section */}
+          {activeTab === 'workshops' && (
+            <WorkshopManagement registrations={registrations} />
+          )}
+
           {/* SuperAdmin Section - Only visible to SuperAdmins */}
           {activeTab === 'superadmin' && isSuperAdmin && (
             <div className="bg-white shadow rounded-lg">
@@ -1059,7 +1153,14 @@ useEffect(() => {
 
                 {/* Users Management Table */}
                 <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
-                  <table className="min-w-full divide-y divide-gray-300">
+                  <div 
+                    className="md:overflow-visible overflow-x-auto mobile-scroll-container"
+                    style={{
+                      scrollbarWidth: 'thin',
+                      scrollbarColor: '#d1d5db #f3f4f6'
+                    }}
+                  >
+                    <table className="min-w-full divide-y divide-gray-300">
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -1150,7 +1251,8 @@ useEffect(() => {
                         ))
                       )}
                     </tbody>
-                  </table>
+                    </table>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1396,6 +1498,7 @@ useEffect(() => {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }

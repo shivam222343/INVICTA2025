@@ -355,7 +355,7 @@ export default function Register() {
       
       showSuccess('Registration submitted successfully! We will review your payment and contact you soon.');
       setShowCelebration(true);
-      setSuccess(true);
+      // setSuccess(true); // Removed to prevent success modal popup
     } catch (error) {
       console.error('Error submitting registration:', error);
       showError('Registration failed. Please try again.');
