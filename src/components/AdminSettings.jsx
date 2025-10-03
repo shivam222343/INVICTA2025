@@ -12,6 +12,7 @@ export default function AdminSettings() {
     accountName: 'Google User',
     amount: 200,
     enableRecaptcha: false, // Disabled by default
+    registrationActive: true, // New setting to control registration status
     colleges: ['Kit\'s College of Engineering Kolhapur'],
     years: ['First Year', 'Second Year', 'Third Year', 'Fourth Year'],
     streams: ['Computer Science and Business System', 'Computer Science', 'Information Technology', 'Electronics', 'Mechanical', 'Civil'],
@@ -210,6 +211,46 @@ export default function AdminSettings() {
               </p>
             </div>
           )}
+        </div>
+
+        {/* Registration Status Control */}
+        <div className="bg-white p-6 rounded-lg shadow">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Registration Control</h3>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-4 border rounded-lg">
+              <div>
+                <label htmlFor="registrationActive" className="text-sm font-medium text-gray-900">
+                  Registration Status
+                </label>
+                <p className="text-sm text-gray-500">
+                  Control whether new registrations are accepted
+                </p>
+              </div>
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="registrationActive"
+                  name="registrationActive"
+                  checked={settings.registrationActive}
+                  onChange={(e) => setSettings({ ...settings, registrationActive: e.target.checked })}
+                  className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
+                />
+                <label htmlFor="registrationActive" className={`ml-2 text-sm font-medium ${
+                  settings.registrationActive ? 'text-green-700' : 'text-red-700'
+                }`}>
+                  {settings.registrationActive ? 'Active' : 'Closed'}
+                </label>
+              </div>
+            </div>
+            
+            {!settings.registrationActive && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                <p className="text-red-800 text-sm">
+                  <strong>⚠️ Registration Closed:</strong> Users will see a "Registrations are closed" message on the registration page.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

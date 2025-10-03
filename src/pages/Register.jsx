@@ -38,6 +38,7 @@ export default function Register() {
     upiId: 'shivamdombe1@okaxis',
     accountName: 'Google User',
     amount: 200,
+    registrationActive: true, // Default to active
     colleges: ['Kit\'s College of Engineering Kolhapur'],
     years: ['First Year', 'Second Year', 'Third Year', 'Fourth Year'],
     streams: ['Computer Science and Business System', 'Computer Science', 'Information Technology', 'Electronics', 'Mechanical', 'Civil'],
@@ -301,6 +302,12 @@ export default function Register() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    // Check if registrations are closed
+    if (adminSettings.registrationActive === false) {
+      showError('Registrations are currently closed.');
+      return;
+    }
+    
     // Check reCAPTCHA only if enabled
     if (adminSettings.enableRecaptcha && !recaptchaToken) {
       showWarning('Please complete the reCAPTCHA verification.');
@@ -363,6 +370,32 @@ export default function Register() {
 
     setLoading(false);
   };
+
+  // Check if registrations are closed
+  if (adminSettings.registrationActive === false) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-50 to-orange-100">
+        <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-8 text-center">
+          <div className="mb-6">
+            <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-red-100">
+              <svg className="h-8 w-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18.364 5.636M5.636 18.364l12.728-12.728" />
+              </svg>
+            </div>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">Registrations Closed</h2>
+          <p className="text-gray-600 mb-6">
+            Registration for INVICTA 2025 workshops is currently closed. Please check back later or contact the organizers for more information.
+          </p>
+          <div className="bg-gray-50 rounded-lg p-4">
+            <p className="text-sm text-gray-500">
+              For inquiries, please contact the event organizers.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (success) {
     return (

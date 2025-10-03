@@ -8,6 +8,7 @@ import Home from './pages/Home';
 import Register from './pages/Register';
 import Login from './pages/Login';
 import Admin from './pages/Admin';
+import BuildItBetter from './pages/BuildItBetter';
 
 // Protected Home Route Component
 function ProtectedHome() {
@@ -31,6 +32,7 @@ function App() {
               <Route path="/home" element={<ProtectedHome />} />
               <Route path="/register" element={<Register />} />
               <Route path="/login" element={<Login />} />
+              <Route path="/build-it-better" element={<BuildItBetter />} />
               <Route 
                 path="/admin" 
                 element={
