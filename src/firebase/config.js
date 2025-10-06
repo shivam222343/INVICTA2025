@@ -7,12 +7,12 @@ import { getStorage } from 'firebase/storage';
 // Your web app's Firebase configuration
 // Using environment variables for security
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "your-api-key",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "your-project-id.firebaseapp.com",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "your-project-id",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "your-project-id.appspot.com",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "your-sender-id",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "your-app-id"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyBAbcv9S4IkNYpSr8TOFlXARReka3J8jEo",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "invicta2025-6a053.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "invicta2025-6a053",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "invicta2025-6a053.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "251765109893",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:251765109893:web:8e4028c4abb437bd2f25ec"
 };
 
 // Initialize Firebase

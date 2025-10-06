@@ -5,7 +5,7 @@ export default function ReCaptcha({ onVerify, onExpire, onError }) {
   const widgetIdRef = useRef(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [error, setError] = useState(null);
-  const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
+  const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY || "6Lf1KNkrAAAAAOgzUHJfpQYOA7sgKOqdxmEwiROf";
 
   // Memoize the render function to prevent unnecessary re-renders
   const renderRecaptcha = useCallback(() => {
