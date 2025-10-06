@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   BarChart,
   Bar,
@@ -73,6 +73,9 @@ const CustomPieTooltip = ({ active, payload, totalRegistrations }) => {
 
 const Analytics = ({ registrations = [] }) => {
   const [isVisible, setIsVisible] = useState(false);
+  const [selectedWorkshop, setSelectedWorkshop] = useState('all');
+  const [isCapturing, setIsCapturing] = useState(false);
+  const analyticsRef = useRef(null);
 
   // Animation trigger
   useEffect(() => {
@@ -81,15 +84,95 @@ const Analytics = ({ registrations = [] }) => {
     return () => clearTimeout(timer);
   }, []);
 
+  // Screenshot functionality
+  const captureScreenshot = async () => {
+    if (!analyticsRef.current) return;
+    
+    setIsCapturing(true);
+    
+    try {
+      // Dynamically import html2canvas
+      const html2canvas = (await import('html2canvas')).default;
+      
+      // Get the analytics container
+      const element = analyticsRef.current;
+      
+      // Store original styles
+      const originalOverflow = document.body.style.overflow;
+      const originalHeight = element.style.height;
+      const originalTransform = element.style.transform;
+      
+      // Temporarily modify styles for better capture
+      document.body.style.overflow = 'visible';
+      element.style.height = 'auto';
+      element.style.transform = 'scale(0.7)';
+      element.style.transformOrigin = 'top left';
+      
+      // Wait a moment for styles to apply
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Capture the screenshot
+      const canvas = await html2canvas(element, {
+        useCORS: true,
+        allowTaint: true,
+        scale: 1.5, // Higher quality
+        scrollX: 0,
+        scrollY: 0,
+        width: element.scrollWidth,
+        height: element.scrollHeight,
+        backgroundColor: '#f8fafc', // Light gray background
+        onclone: (clonedDoc) => {
+          // Ensure all elements are visible in the clone
+          const clonedElement = clonedDoc.querySelector('[data-analytics-container]');
+          if (clonedElement) {
+            clonedElement.style.transform = 'scale(0.7)';
+            clonedElement.style.transformOrigin = 'top left';
+            clonedElement.style.height = 'auto';
+          }
+        }
+      });
+      
+      // Restore original styles
+      document.body.style.overflow = originalOverflow;
+      element.style.height = originalHeight;
+      element.style.transform = originalTransform;
+      
+      // Create download link
+      const link = document.createElement('a');
+      link.download = `INVICTA-Analytics-${selectedWorkshop === 'all' ? 'All-Workshops' : selectedWorkshop.replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.png`;
+      link.href = canvas.toDataURL('image/png', 1.0);
+      
+      // Trigger download
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+    } catch (error) {
+      console.error('Error capturing screenshot:', error);
+      alert('Failed to capture screenshot. Please try again.');
+    }
+    
+    setIsCapturing(false);
+  };
+
+  // Filter registrations based on selected workshop
+  const filteredRegistrations = selectedWorkshop === 'all' 
+    ? registrations 
+    : registrations.filter(r => r.workshop === selectedWorkshop);
+
+  // Get unique workshops for filter dropdown
+  const uniqueWorkshops = [...new Set(registrations.map(r => r.workshop).filter(Boolean))];
+
   // Calculate analytics data
-  const totalRegistrations = registrations.length;
-  const approvedCount = registrations.filter(r => r.status === 'approved').length;
-  const pendingCount = registrations.filter(r => r.status === 'pending' || !r.status).length;
-  const rejectedCount = registrations.filter(r => r.status === 'rejected').length;
+  const totalRegistrations = filteredRegistrations.length;
+  const approvedCount = filteredRegistrations.filter(r => r.status === 'approved').length;
+  const pendingCount = filteredRegistrations.filter(r => r.status === 'pending' || !r.status).length;
+  const rejectedCount = filteredRegistrations.filter(r => r.status === 'rejected').length;
 
   // Data processing functions (Simplified and fixed array mapping)
-  const processData = (key, limit = Infinity, shorten = false) => {
-    const counts = registrations.reduce((acc, reg) => {
+  const processData = (key, limit = Infinity, shorten = false, useFiltered = true) => {
+    const dataSource = useFiltered ? filteredRegistrations : registrations;
+    const counts = dataSource.reduce((acc, reg) => {
       const value = reg[key];
       if (value) {
         acc[value] = (acc[value] || 0) + 1;
@@ -114,10 +197,11 @@ const Analytics = ({ registrations = [] }) => {
     return sortedData;
   };
 
-  const workshopData = processData('workshop', 10, true);
+  const workshopData = processData('workshop', 10, true, false); // Use all registrations for workshop overview
   const collegeData = processData('college', 10, true);
   const yearData = processData('yearOfStudy').sort((a, b) => (a.name > b.name ? 1 : -1)); // Sort years numerically/alphabetically
   const streamData = processData('stream', 10, true);
+  const languageData = processData('preferredLanguage', 10, false); // Language preference data
 
   // Status data for pie chart
   const statusData = [
@@ -144,7 +228,7 @@ const Analytics = ({ registrations = [] }) => {
   }
 
   // Populate the counts
-  registrations.forEach(reg => {
+  filteredRegistrations.forEach(reg => {
     let regDate;
     if (reg.registrationDate?.toDate) {
       regDate = reg.registrationDate.toDate(); // Handles Firebase Timestamps
@@ -167,7 +251,77 @@ const Analytics = ({ registrations = [] }) => {
   timelineData.push(...Array.from(dayMap.values()));
 
   return (
-    <div className="space-y-2 p-4 min-h-screen">
+    <div 
+      ref={analyticsRef}
+      data-analytics-container
+      className="space-y-2 p-4 min-h-screen"
+    >
+      
+      {/* Workshop Filter */}
+      <div className="bg-white rounded-xl shadow-lg p-6 mb-8">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Analytics Dashboard</h2>
+            <p className="text-gray-600">
+              {selectedWorkshop === 'all' 
+                ? `Showing data for all workshops (${totalRegistrations} registrations)`
+                : `Showing data for ${selectedWorkshop} (${totalRegistrations} registrations)`
+              }
+            </p>
+          </div>
+          
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+            <div className="flex items-center gap-3">
+              <label className="text-sm font-medium text-gray-700">Filter by Workshop:</label>
+              <select
+                value={selectedWorkshop}
+                onChange={(e) => setSelectedWorkshop(e.target.value)}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white min-w-[200px]"
+              >
+                <option value="all">All Workshops</option>
+                {uniqueWorkshops.map(workshop => (
+                  <option key={workshop} value={workshop}>
+                    {workshop}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            {/* Screenshot Button */}
+            <div className="relative group">
+              <button
+                onClick={captureScreenshot}
+                disabled={isCapturing}
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-medium rounded-lg hover:from-purple-700 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl"
+                title="Capture full analytics dashboard screenshot"
+              >
+                {isCapturing ? (
+                  <>
+                    <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <span>Capturing...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <span>Screenshot</span>
+                  </>
+                )}
+              </button>
+              
+              {/* Tooltip */}
+              <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none z-10">
+                Capture zoomed-out view of entire dashboard
+                <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
       
       {/* Tailwind CSS keyframes for custom entry animations */}
       <style jsx global>{`
@@ -466,6 +620,110 @@ const Analytics = ({ registrations = [] }) => {
           </ResponsiveContainer>
         </div>
       </div>
+
+      {/* Language Preference Analysis */}
+      {languageData.length > 0 && (
+        <div className="mt-10">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            
+            {/* Language Distribution Pie Chart */}
+            <div className={`bg-white rounded-xl shadow-lg p-6 transition-all duration-700 hover:shadow-2xl ${isVisible ? 'animate-slide-in-up' : 'opacity-0'}`} style={{ animationDelay: '1000ms' }}>
+              <h3 className="text-xl font-semibold text-gray-900 mb-6 flex items-center">
+                <div className="w-3 h-3 rounded-full mr-3 bg-pink-500 shadow-md"></div>
+                Language Preference Distribution
+              </h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={languageData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={100}
+                    innerRadius={40}
+                    paddingAngle={3}
+                    animationEasing="cubic-bezier(0.68, -0.55, 0.27, 1.55)"
+                    animationDuration={1200}
+                    isAnimationActive={isVisible}
+                    labelLine={false}
+                  >
+                    {languageData.map((entry, index) => (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={getRandomColor(index + 6)} 
+                        stroke={getRandomColor(index + 6)} 
+                        strokeWidth={2}
+                        className="hover:opacity-80 transition-opacity duration-300"
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<CustomPieTooltip totalRegistrations={totalRegistrations} />} />
+                  <Legend 
+                    verticalAlign="bottom" 
+                    align="center"
+                    height={36}
+                    formatter={(value, entry) => (
+                      <span className="font-medium text-gray-700" style={{ color: entry.color }}>
+                        {value}
+                      </span>
+                    )}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Language Statistics Card */}
+            <div className={`bg-white rounded-xl shadow-lg p-6 transition-all duration-700 hover:shadow-2xl ${isVisible ? 'animate-slide-in-up' : 'opacity-0'}`} style={{ animationDelay: '1100ms' }}>
+              <h3 className="text-xl font-semibold text-gray-900 mb-6 flex items-center">
+                <div className="w-3 h-3 rounded-full mr-3 bg-rose-500 shadow-md"></div>
+                Language Insights
+              </h3>
+              
+              <div className="space-y-4">
+                {languageData.slice(0, 5).map((lang, index) => {
+                  const percentage = totalRegistrations > 0 ? ((lang.value / totalRegistrations) * 100).toFixed(1) : 0;
+                  return (
+                    <div key={lang.name} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                      <div className="flex items-center">
+                        <div 
+                          className="w-4 h-4 rounded-full mr-3"
+                          style={{ backgroundColor: getRandomColor(index + 6) }}
+                        ></div>
+                        <div>
+                          <p className="font-semibold text-gray-900">{lang.name}</p>
+                          <p className="text-sm text-gray-600">{lang.value} participants</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-lg font-bold text-indigo-600">{percentage}%</p>
+                        <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-indigo-500 transition-all duration-1000 ease-out"
+                            style={{ 
+                              width: `${percentage}%`,
+                              backgroundColor: getRandomColor(index + 6)
+                            }}
+                          ></div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                
+                {languageData.length === 0 && (
+                  <div className="text-center py-8">
+                    <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+                    </svg>
+                    <p className="text-gray-500">No language preference data available</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
