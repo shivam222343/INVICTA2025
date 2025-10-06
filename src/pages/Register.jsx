@@ -21,6 +21,7 @@ export default function Register() {
     stream: '',
     otherStream: '',
     workshop: '',
+    preferredLanguage: '',
     // Payment Info
     transactionId: '',
     paymentProof: null
@@ -39,6 +40,8 @@ export default function Register() {
     accountName: 'Google User',
     amount: 200,
     registrationActive: true, // Default to active
+    paymentRequired: true, // Default to payment required
+    languages: ['Hindi', 'Marathi', 'English'], // Available language options
     colleges: ['Kit\'s College of Engineering Kolhapur'],
     years: ['First Year', 'Second Year', 'Third Year', 'Fourth Year'],
     streams: ['Computer Science and Business System', 'Computer Science', 'Information Technology', 'Electronics', 'Mechanical', 'Civil'],
@@ -137,6 +140,12 @@ export default function Register() {
         }
         break;
 
+      case 'preferredLanguage':
+        if (!value.trim()) {
+          errors.preferredLanguage = 'Language preference is required';
+        }
+        break;
+
       case 'transactionId':
         if (!value.trim()) {
           errors.transactionId = 'Transaction ID is required';
@@ -173,7 +182,7 @@ export default function Register() {
 
   const validateStep1 = () => {
     const errors = {};
-    const step1Fields = ['fullName', 'email', 'mobile', 'college', 'otherCollege', 'prnNumber', 'yearOfStudy', 'stream', 'otherStream', 'workshop'];
+    const step1Fields = ['fullName', 'email', 'mobile', 'college', 'otherCollege', 'prnNumber', 'yearOfStudy', 'stream', 'otherStream', 'workshop', 'preferredLanguage'];
     
     // Validate only step 1 fields
     step1Fields.forEach(key => {
@@ -275,9 +284,14 @@ export default function Register() {
         return;
       }
 
-      // If all validations pass, proceed to step 2
-      setCurrentStep(2);
-      showSuccess('Step 1 completed! Please proceed with payment details.');
+      // If all validations pass, proceed to step 2 or complete registration if payment not required
+      if (!adminSettings.paymentRequired) {
+        // Skip payment step and complete registration directly
+        handleSubmit({ preventDefault: () => {} });
+      } else {
+        setCurrentStep(2);
+        showSuccess('Step 1 completed! Please proceed with payment details.');
+      }
     } catch (error) {
       console.error('Error checking registration:', error);
       showError('Error checking registration. Please try again.');
@@ -334,10 +348,11 @@ export default function Register() {
         yearOfStudy: formData.yearOfStudy,
         stream: formData.stream === 'other' ? formData.otherStream : formData.stream,
         workshop: formData.workshop,
-        transactionId: formData.transactionId,
-        paymentProofUrl,
+        preferredLanguage: formData.preferredLanguage,
+        transactionId: adminSettings.paymentRequired ? formData.transactionId : 'FREE_REGISTRATION',
+        paymentProofUrl: adminSettings.paymentRequired ? paymentProofUrl : '',
         registrationDate: new Date(),
-        status: 'pending' // Admin can approve later
+        status: adminSettings.paymentRequired ? 'pending' : 'approved' // Auto-approve free registrations
       };
 
       await addDoc(collection(db, 'registrations'), registrationData);
@@ -357,7 +372,8 @@ export default function Register() {
       setRegisteredUserData({
         name: formData.fullName,
         workshop: formData.workshop,
-        whatsappLink: adminSettings.whatsappGroups?.[formData.workshop] || null
+        whatsappLink: adminSettings.whatsappGroups?.[formData.workshop] || null,
+        isFreeRegistration: !adminSettings.paymentRequired
       });
       
       showSuccess('Registration submitted successfully! We will review your payment and contact you soon.');
@@ -419,7 +435,7 @@ export default function Register() {
               setFormData({
                 fullName: '', email: '', mobile: '', college: '', otherCollege: '',
                 prnNumber: '', yearOfStudy: '', stream: '', otherStream: '', workshop: '',
-                transactionId: '', paymentProof: null
+                preferredLanguage: '', transactionId: '', paymentProof: null
               });
             }}
             className="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
@@ -435,9 +451,37 @@ export default function Register() {
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50">
       {/* Header */}
       <div className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto text-center flex justify-center items-center px-4 sm:px-6 lg:px-8 py-6">
-          <div className="">
-            <img className="h-24" src={"./Invicta.png"} alt="" />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="flex flex-col sm:flex-row items-center justify-between">
+            <div className="flex items-center mb-4 sm:mb-0">
+              <img className="h-20 sm:h-24" src={"./Invicta.png"} alt="INVICTA 2025" />
+              <div className="ml-4 text-left">
+                <h1 className="text-xl sm:text-2xl font-bold text-gray-900">INVICTA 2025</h1>
+                <p className="text-sm text-gray-600">Workshop Registration</p>
+              </div>
+            </div>
+            
+            {/* Highlighted About Button */}
+            <div className="flex flex-col items-center sm:items-end">
+              <button
+                onClick={() => window.location.href = '/about'}
+                className="group relative bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 text-white font-bold py-3 px-6 rounded-full hover:from-purple-700 hover:via-indigo-700 hover:to-blue-700 transform hover:scale-105 transition-all duration-300 shadow-xl animate-pulse hover:animate-none"
+              >
+                <div className="flex items-center">
+                  <svg className="w-5 h-5 mr-2 group-hover:animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                  </svg>
+                  <span className="text-sm sm:text-base">View About INVICTA</span>
+                </div>
+                
+                {/* Glowing effect */}
+                <div className="absolute -inset-1 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 rounded-full blur opacity-30 group-hover:opacity-50 transition duration-300"></div>
+              </button>
+              
+              <p className="text-xs text-gray-500 mt-2 text-center">
+                🎯 Discover all workshops & benefits
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -469,21 +513,35 @@ export default function Register() {
                   </div>
                 </div>
                 
-                <div className={`flex items-center p-3 rounded-lg transition-colors ${
-                  currentStep === 2 ? 'bg-indigo-50 border-2 border-indigo-200' : 
-                  currentStep > 2 ? 'bg-green-50 border-2 border-green-200' : 'bg-gray-50 border-2 border-gray-200'
-                }`}>
-                  <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${
-                    currentStep === 2 ? 'bg-indigo-600 text-white' :
-                    currentStep > 2 ? 'bg-green-600 text-white' : 'bg-gray-300 text-gray-600'
+                {adminSettings.paymentRequired && (
+                  <div className={`flex items-center p-3 rounded-lg transition-colors ${
+                    currentStep === 2 ? 'bg-indigo-50 border-2 border-indigo-200' : 
+                    currentStep > 2 ? 'bg-green-50 border-2 border-green-200' : 'bg-gray-50 border-2 border-gray-200'
                   }`}>
-                    {currentStep > 2 ? '✓' : '2'}
+                    <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${
+                      currentStep === 2 ? 'bg-indigo-600 text-white' :
+                      currentStep > 2 ? 'bg-green-600 text-white' : 'bg-gray-300 text-gray-600'
+                    }`}>
+                      {currentStep > 2 ? '✓' : '2'}
+                    </div>
+                    <div className="ml-3">
+                      <p className="text-sm font-medium text-gray-900">Payment Details</p>
+                      <p className="text-xs text-gray-500">Payment & verification</p>
+                    </div>
                   </div>
-                  <div className="ml-3">
-                    <p className="text-sm font-medium text-gray-900">Payment Details</p>
-                    <p className="text-xs text-gray-500">Payment & verification</p>
+                )}
+                
+                {!adminSettings.paymentRequired && (
+                  <div className="flex items-center p-3 rounded-lg bg-green-50 border-2 border-green-200">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold bg-green-600 text-white">
+                      ✓
+                    </div>
+                    <div className="ml-3">
+                      <p className="text-sm font-medium text-gray-900">FREE Registration</p>
+                      <p className="text-xs text-gray-500">No payment required</p>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Event Info */}
@@ -495,6 +553,41 @@ export default function Register() {
                   <li>• Networking opportunities</li>
                   <li>• Certificates & prizes</li>
                 </ul>
+              </div>
+
+              {/* Learn More About INVICTA - Highlighted */}
+              <div className="mt-6 p-4 bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-600 rounded-xl shadow-lg relative overflow-hidden">
+                {/* Background pattern */}
+                <div className="absolute inset-0 opacity-10">
+                  <div className="absolute inset-0 bg-white transform rotate-12 scale-150"></div>
+                </div>
+                
+                <div className="relative z-10">
+                  <div className="flex items-center mb-3">
+                    <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center mr-3">
+                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                      </svg>
+                    </div>
+                    <h4 className="text-sm font-bold text-white">Want to Know More?</h4>
+                  </div>
+                  
+                  <p className="text-xs text-white/90 mb-4 leading-relaxed">
+                    Explore detailed workshop information, schedules, and benefits before registering!
+                  </p>
+                  
+                  <button
+                    onClick={() => window.location.href = '/about'}
+                    className="w-full bg-white/20 hover:bg-white/30 text-white font-semibold py-2 px-4 rounded-lg transition-all duration-300 text-xs backdrop-blur-sm border border-white/30 hover:scale-105 transform"
+                  >
+                    <div className="flex items-center justify-center">
+                      <span>View All Workshops</span>
+                      <svg className="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"/>
+                      </svg>
+                    </div>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -757,6 +850,35 @@ export default function Register() {
                     <p className="mt-1 text-sm text-red-600">{validationErrors.workshop}</p>
                   )}
                 </div>
+
+                <div>
+                  <label htmlFor="preferredLanguage" className="block text-sm font-medium text-gray-700">
+                    Preferred/Native Language *
+                  </label>
+                  <div className="mt-2 space-y-2">
+                    {adminSettings.languages.map((language) => (
+                      <label key={language} className="flex items-center">
+                        <input
+                          type="radio"
+                          name="preferredLanguage"
+                          value={language}
+                          checked={formData.preferredLanguage === language}
+                          onChange={handleChange}
+                          className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                        />
+                        <span className="ml-2 text-sm text-gray-700 flex items-center">
+                          {language}
+                          {formData.preferredLanguage === language && (
+                            <span className="ml-2 text-green-600">✓</span>
+                          )}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  {validationErrors.preferredLanguage && (
+                    <p className="mt-1 text-sm text-red-600">{validationErrors.preferredLanguage}</p>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -766,15 +888,15 @@ export default function Register() {
                 onClick={handleNextStep}
                 className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
               >
-                Next: Payment Information →
+                {adminSettings.paymentRequired ? 'Next: Payment Information →' : 'Complete Free Registration'}
               </button>
             </div>
             </form>
           </div>
         )}
 
-        {/* Step 2: Payment Information */}
-        {currentStep === 2 && (
+        {/* Step 2: Payment Information - Only show if payment is required */}
+        {currentStep === 2 && adminSettings.paymentRequired && (
           <div className="bg-white rounded-lg shadow-lg p-8 transform transition-all duration-500 ease-in-out animate-fade-in">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-semibold text-gray-900">Step 2: Complete Payment</h3>
@@ -965,6 +1087,7 @@ export default function Register() {
         userName={registeredUserData?.name}
         workshop={registeredUserData?.workshop}
         whatsappLink={registeredUserData?.whatsappLink}
+        isFreeRegistration={registeredUserData?.isFreeRegistration}
       />
     </div>
   );

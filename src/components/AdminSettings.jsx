@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
-import { uploadQRToCloudinary } from '../utils/cloudinary';
+import { uploadQRToCloudinary, uploadToCloudinary } from '../utils/cloudinary';
 import { useToast } from '../contexts/ToastContext';
 
 export default function AdminSettings() {
@@ -13,6 +13,8 @@ export default function AdminSettings() {
     amount: 200,
     enableRecaptcha: false, // Disabled by default
     registrationActive: true, // New setting to control registration status
+    paymentRequired: true, // New setting to control payment requirement
+    languages: ['Hindi', 'Marathi', 'English'], // Available language options
     colleges: ['Kit\'s College of Engineering Kolhapur'],
     years: ['First Year', 'Second Year', 'Third Year', 'Fourth Year'],
     streams: ['Computer Science and Business System', 'Computer Science', 'Information Technology', 'Electronics', 'Mechanical', 'Civil'],
@@ -31,9 +33,25 @@ export default function AdminSettings() {
   const [newCollege, setNewCollege] = useState('');
   const [newStream, setNewStream] = useState('');
   const [newWorkshop, setNewWorkshop] = useState('');
+  
+  // About page workshops state
+  const [aboutWorkshops, setAboutWorkshops] = useState([]);
+  const [showWorkshopModal, setShowWorkshopModal] = useState(false);
+  const [editingWorkshop, setEditingWorkshop] = useState(null);
+  const [workshopForm, setWorkshopForm] = useState({
+    name: '',
+    date: '',
+    duration: '',
+    description: '',
+    advantages: [''],
+    registrationFees: '',
+    posterImages: []
+  });
+  const [uploadingImages, setUploadingImages] = useState(false);
 
   useEffect(() => {
     loadSettings();
+    loadAboutWorkshops();
   }, []);
 
   const loadSettings = async () => {
@@ -43,6 +61,17 @@ export default function AdminSettings() {
         setSettings({ ...settings, ...settingsDoc.data() });
       }
     } catch (error) {
+    }
+  };
+
+  const loadAboutWorkshops = async () => {
+    try {
+      const workshopsDoc = await getDoc(doc(db, 'adminSettings', 'aboutWorkshops'));
+      if (workshopsDoc.exists()) {
+        setAboutWorkshops(workshopsDoc.data().workshops || []);
+      }
+    } catch (error) {
+      console.error('Error loading about workshops:', error);
     }
   };
 
@@ -101,6 +130,163 @@ export default function AdminSettings() {
     } catch (error) {
       console.error('Error saving settings:', error);
       showError('Failed to save settings. Please try again.');
+    }
+    setLoading(false);
+  };
+
+  // Workshop Management Functions
+  const handleWorkshopFormChange = (e) => {
+    const { name, value } = e.target;
+    setWorkshopForm(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  const handleAdvantageChange = (index, value) => {
+    const newAdvantages = [...workshopForm.advantages];
+    newAdvantages[index] = value;
+    setWorkshopForm(prev => ({
+      ...prev,
+      advantages: newAdvantages
+    }));
+  };
+
+  const addAdvantage = () => {
+    setWorkshopForm(prev => ({
+      ...prev,
+      advantages: [...prev.advantages, '']
+    }));
+  };
+
+  const removeAdvantage = (index) => {
+    const newAdvantages = workshopForm.advantages.filter((_, i) => i !== index);
+    setWorkshopForm(prev => ({
+      ...prev,
+      advantages: newAdvantages
+    }));
+  };
+
+  const handleImageUpload = async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+
+    setUploadingImages(true);
+    try {
+      const uploadPromises = files.map(file => uploadToCloudinary(file, 'workshop-posters'));
+      const imageUrls = await Promise.all(uploadPromises);
+      
+      setWorkshopForm(prev => ({
+        ...prev,
+        posterImages: [...prev.posterImages, ...imageUrls]
+      }));
+      
+      showSuccess(`${files.length} image(s) uploaded successfully!`);
+    } catch (error) {
+      console.error('Error uploading images:', error);
+      showError('Failed to upload images. Please try again.');
+    }
+    setUploadingImages(false);
+  };
+
+  const removeImage = (index) => {
+    setWorkshopForm(prev => ({
+      ...prev,
+      posterImages: prev.posterImages.filter((_, i) => i !== index)
+    }));
+  };
+
+  const openWorkshopModal = (workshop = null) => {
+    if (workshop) {
+      setEditingWorkshop(workshop);
+      setWorkshopForm(workshop);
+    } else {
+      setEditingWorkshop(null);
+      setWorkshopForm({
+        name: '',
+        date: '',
+        duration: '',
+        description: '',
+        advantages: [''],
+        registrationFees: '',
+        posterImages: []
+      });
+    }
+    setShowWorkshopModal(true);
+  };
+
+  const closeWorkshopModal = () => {
+    setShowWorkshopModal(false);
+    setEditingWorkshop(null);
+    setWorkshopForm({
+      name: '',
+      date: '',
+      duration: '',
+      description: '',
+      advantages: [''],
+      registrationFees: '',
+      posterImages: []
+    });
+  };
+
+  const saveWorkshop = async () => {
+    if (!workshopForm.name.trim()) {
+      showError('Workshop name is required');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      // Filter out empty advantages
+      const cleanedAdvantages = workshopForm.advantages.filter(adv => adv.trim() !== '');
+      const workshopData = {
+        ...workshopForm,
+        advantages: cleanedAdvantages
+      };
+
+      let updatedWorkshops;
+      if (editingWorkshop) {
+        // Update existing workshop
+        const index = aboutWorkshops.findIndex(w => w === editingWorkshop);
+        updatedWorkshops = [...aboutWorkshops];
+        updatedWorkshops[index] = workshopData;
+      } else {
+        // Add new workshop
+        updatedWorkshops = [...aboutWorkshops, workshopData];
+      }
+
+      // Save to Firebase
+      await setDoc(doc(db, 'adminSettings', 'aboutWorkshops'), {
+        workshops: updatedWorkshops
+      });
+
+      setAboutWorkshops(updatedWorkshops);
+      closeWorkshopModal();
+      showSuccess(`Workshop ${editingWorkshop ? 'updated' : 'added'} successfully!`);
+    } catch (error) {
+      console.error('Error saving workshop:', error);
+      showError('Failed to save workshop. Please try again.');
+    }
+    setLoading(false);
+  };
+
+  const deleteWorkshop = async (workshopToDelete) => {
+    if (!confirm('Are you sure you want to delete this workshop?')) return;
+
+    try {
+      setLoading(true);
+      const updatedWorkshops = aboutWorkshops.filter(w => w !== workshopToDelete);
+      
+      await setDoc(doc(db, 'adminSettings', 'aboutWorkshops'), {
+        workshops: updatedWorkshops
+      });
+
+      setAboutWorkshops(updatedWorkshops);
+      showSuccess('Workshop deleted successfully!');
+    } catch (error) {
+      console.error('Error deleting workshop:', error);
+      showError('Failed to delete workshop. Please try again.');
     }
     setLoading(false);
   };
@@ -250,6 +436,41 @@ export default function AdminSettings() {
                 </p>
               </div>
             )}
+            
+            {/* Payment Control */}
+            <div className="flex items-center justify-between p-4 border rounded-lg mt-4">
+              <div>
+                <label htmlFor="paymentRequired" className="text-sm font-medium text-gray-900">
+                  Payment Requirement
+                </label>
+                <p className="text-sm text-gray-500">
+                  Control whether payment is required for registration
+                </p>
+              </div>
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="paymentRequired"
+                  name="paymentRequired"
+                  checked={settings.paymentRequired}
+                  onChange={(e) => setSettings({ ...settings, paymentRequired: e.target.checked })}
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+                <label htmlFor="paymentRequired" className={`ml-2 text-sm font-medium ${
+                  settings.paymentRequired ? 'text-blue-700' : 'text-green-700'
+                }`}>
+                  {settings.paymentRequired ? 'Required' : 'Free Registration'}
+                </label>
+              </div>
+            </div>
+            
+            {!settings.paymentRequired && (
+              <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-md">
+                <p className="text-green-800 text-sm">
+                  <strong>✅ Free Registration:</strong> Users will see "FREE REGISTRATION" instead of payment details.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -363,6 +584,46 @@ export default function AdminSettings() {
               </div>
             </div>
 
+            {/* Languages */}
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Language Preferences</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Available language options for participants to select their preferred/native language.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {settings.languages.map((language, index) => (
+                  <span key={index} className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-yellow-100 text-yellow-800">
+                    {language}
+                    <button
+                      onClick={() => {
+                        const newLanguages = settings.languages.filter((_, i) => i !== index);
+                        setSettings({ ...settings, languages: newLanguages });
+                      }}
+                      className="ml-2 text-yellow-600 hover:text-yellow-800"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex gap-2 mt-3">
+                <input
+                  type="text"
+                  placeholder="Add new language"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter' && e.target.value.trim() && !settings.languages.includes(e.target.value.trim())) {
+                      setSettings({
+                        ...settings,
+                        languages: [...settings.languages, e.target.value.trim()]
+                      });
+                      e.target.value = '';
+                    }
+                  }}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
+            </div>
+
             {/* WhatsApp Groups */}
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-4">WhatsApp Groups</h3>
@@ -386,6 +647,88 @@ export default function AdminSettings() {
                 ))}
               </div>
             </div>
+
+            {/* About Page Workshop Management */}
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">About Page Workshops</h3>
+                <button
+                  onClick={() => openWorkshopModal()}
+                  className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 text-sm font-medium"
+                >
+                  Add Workshop
+                </button>
+              </div>
+              <p className="text-sm text-gray-600 mb-4">
+                Manage workshops displayed on the /about page with detailed information, images, and advantages.
+              </p>
+              
+              {aboutWorkshops.length > 0 ? (
+                <div className="space-y-4">
+                  {aboutWorkshops.map((workshop, index) => (
+                    <div key={index} className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-gray-900">{workshop.name}</h4>
+                          <p className="text-sm text-gray-600 mt-1">
+                            {workshop.date && new Date(workshop.date).toLocaleDateString('en-IN')} 
+                            {workshop.duration && ` • ${workshop.duration}`}
+                            {workshop.registrationFees && ` • ₹${workshop.registrationFees}`}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-2 line-clamp-2">
+                            {workshop.description}
+                          </p>
+                          {workshop.posterImages && workshop.posterImages.length > 0 && (
+                            <div className="flex gap-2 mt-2">
+                              {workshop.posterImages.slice(0, 3).map((img, imgIdx) => (
+                                <img
+                                  key={imgIdx}
+                                  src={img}
+                                  alt={`${workshop.name} poster ${imgIdx + 1}`}
+                                  className="w-12 h-12 object-cover rounded border"
+                                />
+                              ))}
+                              {workshop.posterImages.length > 3 && (
+                                <div className="w-12 h-12 bg-gray-200 rounded border flex items-center justify-center text-xs text-gray-500">
+                                  +{workshop.posterImages.length - 3}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-2 ml-4">
+                          <button
+                            onClick={() => openWorkshopModal(workshop)}
+                            className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => deleteWorkshop(workshop)}
+                            className="text-red-600 hover:text-red-800 text-sm font-medium"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                  <svg className="w-12 h-12 text-gray-400 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                  <p className="text-gray-500 text-sm">No workshops added yet</p>
+                  <button
+                    onClick={() => openWorkshopModal()}
+                    className="mt-2 text-indigo-600 hover:text-indigo-500 text-sm font-medium"
+                  >
+                    Add your first workshop
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -400,6 +743,214 @@ export default function AdminSettings() {
           {loading ? 'Saving...' : 'Save Settings'}
         </button>
       </div>
+
+      {/* Workshop Modal */}
+      {showWorkshopModal && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+            <div className="fixed inset-0 transition-opacity" aria-hidden="true">
+              <div className="absolute inset-0 bg-gray-500 opacity-75" onClick={closeWorkshopModal}></div>
+            </div>
+
+            <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full">
+              <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                <div className="flex justify-between items-start mb-6">
+                  <h3 className="text-lg font-medium text-gray-900">
+                    {editingWorkshop ? 'Edit Workshop' : 'Add New Workshop'}
+                  </h3>
+                  <button
+                    onClick={closeWorkshopModal}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Left Column */}
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Workshop Name *
+                      </label>
+                      <input
+                        type="text"
+                        name="name"
+                        value={workshopForm.name}
+                        onChange={handleWorkshopFormChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="Enter workshop name"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Date
+                      </label>
+                      <input
+                        type="date"
+                        name="date"
+                        value={workshopForm.date}
+                        onChange={handleWorkshopFormChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Duration
+                      </label>
+                      <input
+                        type="text"
+                        name="duration"
+                        value={workshopForm.duration}
+                        onChange={handleWorkshopFormChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="e.g., 2 hours, 1 day, 3 days"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Registration Fees (₹)
+                      </label>
+                      <input
+                        type="number"
+                        name="registrationFees"
+                        value={workshopForm.registrationFees}
+                        onChange={handleWorkshopFormChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="Enter amount"
+                        min="0"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Description
+                      </label>
+                      <textarea
+                        name="description"
+                        value={workshopForm.description}
+                        onChange={handleWorkshopFormChange}
+                        rows="4"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="Describe the workshop content and objectives"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Right Column */}
+                  <div className="space-y-4">
+                    {/* Poster Images */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Poster Images
+                      </label>
+                      <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
+                        <input
+                          type="file"
+                          multiple
+                          accept="image/*"
+                          onChange={handleImageUpload}
+                          className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+                          disabled={uploadingImages}
+                        />
+                        <p className="text-xs text-gray-500 mt-2">
+                          Upload multiple images for the workshop poster
+                        </p>
+                        
+                        {uploadingImages && (
+                          <div className="mt-2 flex items-center text-sm text-indigo-600">
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-600 mr-2"></div>
+                            Uploading images...
+                          </div>
+                        )}
+
+                        {workshopForm.posterImages.length > 0 && (
+                          <div className="mt-4 grid grid-cols-2 gap-2">
+                            {workshopForm.posterImages.map((image, index) => (
+                              <div key={index} className="relative">
+                                <img
+                                  src={image}
+                                  alt={`Poster ${index + 1}`}
+                                  className="w-full h-24 object-cover rounded border"
+                                />
+                                <button
+                                  onClick={() => removeImage(index)}
+                                  className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Advantages */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="block text-sm font-medium text-gray-700">
+                          Advantages of Participation
+                        </label>
+                        <button
+                          type="button"
+                          onClick={addAdvantage}
+                          className="text-indigo-600 hover:text-indigo-500 text-sm font-medium"
+                        >
+                          + Add
+                        </button>
+                      </div>
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {workshopForm.advantages.map((advantage, index) => (
+                          <div key={index} className="flex gap-2">
+                            <input
+                              type="text"
+                              value={advantage}
+                              onChange={(e) => handleAdvantageChange(index, e.target.value)}
+                              className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                              placeholder="Enter advantage"
+                            />
+                            {workshopForm.advantages.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => removeAdvantage(index)}
+                                className="text-red-600 hover:text-red-800 px-2"
+                              >
+                                ×
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                <button
+                  onClick={saveWorkshop}
+                  disabled={loading || uploadingImages}
+                  className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loading ? 'Saving...' : editingWorkshop ? 'Update Workshop' : 'Add Workshop'}
+                </button>
+                <button
+                  onClick={closeWorkshopModal}
+                  className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
