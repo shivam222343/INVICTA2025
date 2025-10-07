@@ -42,9 +42,11 @@ export default function AdminSettings() {
     name: '',
     date: '',
     duration: '',
+    location: '',
     description: '',
     advantages: [''],
     registrationFees: '',
+    registrationLimit: '',
     posterImages: []
   });
   const [uploadingImages, setUploadingImages] = useState(false);
@@ -206,9 +208,11 @@ export default function AdminSettings() {
         name: '',
         date: '',
         duration: '',
+        location: '',
         description: '',
         advantages: [''],
         registrationFees: '',
+        registrationLimit: '',
         posterImages: []
       });
     }
@@ -222,9 +226,11 @@ export default function AdminSettings() {
       name: '',
       date: '',
       duration: '',
+      location: '',
       description: '',
       advantages: [''],
       registrationFees: '',
+      registrationLimit: '',
       posterImages: []
     });
   };
@@ -673,7 +679,11 @@ export default function AdminSettings() {
                           <p className="text-sm text-gray-600 mt-1">
                             {workshop.date && new Date(workshop.date).toLocaleDateString('en-IN')} 
                             {workshop.duration && ` • ${workshop.duration}`}
-                            {workshop.registrationFees && ` • ₹${workshop.registrationFees}`}
+                            {workshop.location && ` • ${workshop.location}`}
+                          </p>
+                          <p className="text-sm text-gray-600">
+                            {workshop.registrationFees && `₹${workshop.registrationFees}`}
+                            {workshop.registrationLimit && ` • Max ${workshop.registrationLimit} participants`}
                           </p>
                           <p className="text-xs text-gray-500 mt-2 line-clamp-2">
                             {workshop.description}
@@ -814,6 +824,20 @@ export default function AdminSettings() {
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Location
+                      </label>
+                      <input
+                        type="text"
+                        name="location"
+                        value={workshopForm.location}
+                        onChange={handleWorkshopFormChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="Enter workshop location"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
                         Registration Fees (₹)
                       </label>
                       <input
@@ -825,6 +849,24 @@ export default function AdminSettings() {
                         placeholder="Enter amount"
                         min="0"
                       />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Registration Limit
+                      </label>
+                      <input
+                        type="number"
+                        name="registrationLimit"
+                        value={workshopForm.registrationLimit}
+                        onChange={handleWorkshopFormChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="Maximum participants (optional)"
+                        min="1"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Leave empty for unlimited registrations
+                      </p>
                     </div>
 
                     <div>

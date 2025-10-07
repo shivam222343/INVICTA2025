@@ -97,9 +97,7 @@ export default function Register() {
         break;
 
       case 'prnNumber':
-        if (!value.trim()) {
-          errors.prnNumber = 'PRN number is required';
-        } else if (!/^[A-Z0-9]{8,15}$/.test(value.trim().toUpperCase())) {
+        if (value.trim() && !/^[A-Z0-9]{8,15}$/.test(value.trim().toUpperCase())) {
           errors.prnNumber = 'PRN should be 8-15 characters (letters and numbers only)';
         }
         break;
@@ -249,15 +247,58 @@ export default function Register() {
     // Check if user is already registered for any workshop using email, mobile, or PRN
     const emailQuery = query(collection(db, 'registrations'), where('email', '==', email));
     const mobileQuery = query(collection(db, 'registrations'), where('mobile', '==', mobile));
-    const prnQuery = query(collection(db, 'registrations'), where('prnNumber', '==', prnNumber.toUpperCase()));
     
-    const [emailSnapshot, mobileSnapshot, prnSnapshot] = await Promise.all([
+    const queries = [
       getDocs(emailQuery),
-      getDocs(mobileQuery),
-      getDocs(prnQuery)
-    ]);
+      getDocs(mobileQuery)
+    ];
     
-    return !emailSnapshot.empty || !mobileSnapshot.empty || !prnSnapshot.empty;
+    // Only check PRN if it's provided
+    if (prnNumber && prnNumber.trim()) {
+      const prnQuery = query(collection(db, 'registrations'), where('prnNumber', '==', prnNumber.toUpperCase()));
+      queries.push(getDocs(prnQuery));
+    }
+    
+    const snapshots = await Promise.all(queries);
+    
+    // Check if any of the queries returned results
+    return snapshots.some(snapshot => !snapshot.empty);
+  };
+
+  const checkWorkshopLimit = async (workshopName) => {
+    try {
+      // Get workshop details from admin settings
+      const settingsDoc = await getDoc(doc(db, 'adminSettings', 'aboutWorkshops'));
+      if (!settingsDoc.exists()) {
+        return { hasLimit: false, isFull: false };
+      }
+
+      const workshops = settingsDoc.data().workshops || [];
+      const selectedWorkshop = workshops.find(w => w.name === workshopName);
+      
+      if (!selectedWorkshop || !selectedWorkshop.registrationLimit) {
+        return { hasLimit: false, isFull: false };
+      }
+
+      // Count current approved registrations for this workshop
+      const registrationsQuery = query(
+        collection(db, 'registrations'), 
+        where('workshop', '==', workshopName),
+        where('status', '==', 'approved')
+      );
+      const registrationsSnapshot = await getDocs(registrationsQuery);
+      const currentCount = registrationsSnapshot.size;
+
+      return {
+        hasLimit: true,
+        isFull: currentCount >= selectedWorkshop.registrationLimit,
+        currentCount,
+        limit: selectedWorkshop.registrationLimit
+      };
+    } catch (error) {
+      console.error('Error checking workshop limit:', error);
+      return { hasLimit: false, isFull: false };
+    }
   };
 
   const handleNextStep = async () => {
@@ -280,6 +321,14 @@ export default function Register() {
       if (isAlreadyRegistered) {
         setWorkshopExists(true);
         showError('You are already registered for a workshop. Each participant can only register for one workshop.');
+        setLoading(false);
+        return;
+      }
+
+      // Check workshop registration limit
+      const workshopLimitCheck = await checkWorkshopLimit(formData.workshop);
+      if (workshopLimitCheck.isFull) {
+        showError(`Sorry, the ${formData.workshop} workshop is full. Registration limit of ${workshopLimitCheck.limit} participants has been reached.`);
         setLoading(false);
         return;
       }
@@ -331,6 +380,13 @@ export default function Register() {
     setLoading(true);
 
     try {
+      // Check workshop registration limit before final submission
+      const workshopLimitCheck = await checkWorkshopLimit(formData.workshop);
+      if (workshopLimitCheck.isFull) {
+        showError(`Sorry, the ${formData.workshop} workshop is full. Registration limit of ${workshopLimitCheck.limit} participants has been reached.`);
+        setLoading(false);
+        return;
+      }
       let paymentProofUrl = '';
       
       // Upload payment proof if provided
@@ -455,9 +511,9 @@ export default function Register() {
           <div className="flex flex-col sm:flex-row items-center justify-between">
             <div className="flex items-center mb-4 sm:mb-0">
               <img className="h-20 sm:h-24" src={"./Invicta.png"} alt="INVICTA 2025" />
-              <div className="ml-4 text-left">
+              <div className="ml-4 text-left hidden lg:block">
                 <h1 className="text-xl sm:text-2xl font-bold text-gray-900">INVICTA 2025</h1>
-                <p className="text-sm text-gray-600">Workshop Registration</p>
+                <p className="text-sm text-gray-600 ">Workshop Registration</p>
               </div>
             </div>
             
@@ -683,19 +739,18 @@ export default function Register() {
 
                 <div>
                   <label htmlFor="prnNumber" className="block text-sm font-medium text-gray-700">
-                    PRN Number *
+                    PRN Number <span className="text-gray-500 font-normal">(Optional)</span>
                   </label>
                   <input
                     id="prnNumber"
                     name="prnNumber"
                     type="text"
-                    required
                     value={formData.prnNumber}
                     onChange={handleChange}
                     className={`mt-1 block w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 sm:text-sm ${
                       validationErrors.prnNumber ? 'border-red-300 focus:border-red-500' : 'border-gray-300 focus:border-indigo-500'
                     }`}
-                    placeholder="Enter your PRN number (8-15 characters)"
+                    placeholder="Enter your PRN number (optional, 8-15 characters)"
                   />
                   {validationErrors.prnNumber && (
                     <p className="mt-1 text-xs text-red-600">{validationErrors.prnNumber}</p>
