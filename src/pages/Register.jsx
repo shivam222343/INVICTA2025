@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, addDoc, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, doc, getDoc, runTransaction } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { uploadToCloudinary } from '../utils/cloudinary';
 import { useToast } from '../contexts/ToastContext';
@@ -41,12 +41,16 @@ export default function Register() {
     amount: 200,
     registrationActive: true, // Default to active
     paymentRequired: true, // Default to payment required
+    spotEntryEnabled: true, // Default to enabled
+    spotEntryMessage: 'Spot entries will be allowed if seats become available due to cancellations or no-shows. Please arrive at the venue early on the workshop day to secure your spot.',
     languages: ['Hindi', 'Marathi', 'English'], // Available language options
     colleges: ['Kit\'s College of Engineering Kolhapur'],
     years: ['First Year', 'Second Year', 'Third Year', 'Fourth Year'],
     streams: ['Computer Science and Business System', 'Computer Science', 'Information Technology', 'Electronics', 'Mechanical', 'Civil'],
     workshops: ['Build it Better', 'Camvision', 'Crystal Clear', 'Blendforge', 'Think Blink and Build']
   });
+  const [settingsLoading, setSettingsLoading] = useState(true);
+  const [showClosedModal, setShowClosedModal] = useState(false);
 
   // Load admin settings on component mount
   useEffect(() => {
@@ -54,10 +58,18 @@ export default function Register() {
       try {
         const settingsDoc = await getDoc(doc(db, 'adminSettings', 'formConfig'));
         if (settingsDoc.exists()) {
-          setAdminSettings({ ...adminSettings, ...settingsDoc.data() });
+          const newSettings = { ...adminSettings, ...settingsDoc.data() };
+          setAdminSettings(newSettings);
+          
+          // Check if registrations are closed and show modal
+          if (newSettings.registrationActive === false) {
+            setShowClosedModal(true);
+          }
         }
       } catch (error) {
         console.error('Error loading admin settings:', error);
+      } finally {
+        setSettingsLoading(false);
       }
     };
     loadAdminSettings();
@@ -274,20 +286,50 @@ export default function Register() {
       }
 
       const workshops = settingsDoc.data().workshops || [];
-      const selectedWorkshop = workshops.find(w => w.name === workshopName);
+      // Case-insensitive workshop matching
+      let selectedWorkshop = workshops.find(w => 
+        w.name.toLowerCase().trim() === workshopName.toLowerCase().trim()
+      );
+      
+      // If no exact match, try fuzzy matching for common variations
+      if (!selectedWorkshop) {
+        selectedWorkshop = workshops.find(w => {
+          const workshopSettingName = w.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+          const workshopFormName = workshopName.toLowerCase().replace(/[^a-z0-9]/g, '');
+          return workshopSettingName === workshopFormName;
+        });
+      }
       
       if (!selectedWorkshop || !selectedWorkshop.registrationLimit) {
         return { hasLimit: false, isFull: false };
       }
 
-      // Count current approved registrations for this workshop
-      const registrationsQuery = query(
-        collection(db, 'registrations'), 
-        where('workshop', '==', workshopName),
-        where('status', '==', 'approved')
+      // Count current approved registrations for this workshop (case-insensitive)
+      const registrationsSnapshot = await getDocs(
+        query(collection(db, 'registrations'), where('status', '==', 'approved'))
       );
-      const registrationsSnapshot = await getDocs(registrationsQuery);
-      const currentCount = registrationsSnapshot.size;
+      
+      let currentCount = 0;
+      registrationsSnapshot.forEach(doc => {
+        const data = doc.data();
+        if (data.workshop) {
+          // Try exact match first
+          let isMatch = data.workshop.toLowerCase().trim() === workshopName.toLowerCase().trim();
+          
+          // If no exact match, try fuzzy matching
+          if (!isMatch) {
+            const registrationName = data.workshop.toLowerCase().replace(/[^a-z0-9]/g, '');
+            const formName = workshopName.toLowerCase().replace(/[^a-z0-9]/g, '');
+            isMatch = registrationName === formName;
+          }
+          
+          if (isMatch) {
+            currentCount++;
+          }
+        }
+      });
+
+      console.log(`Workshop: ${workshopName}, Current Count: ${currentCount}, Limit: ${selectedWorkshop.registrationLimit}`);
 
       return {
         hasLimit: true,
@@ -380,13 +422,6 @@ export default function Register() {
     setLoading(true);
 
     try {
-      // Check workshop registration limit before final submission
-      const workshopLimitCheck = await checkWorkshopLimit(formData.workshop);
-      if (workshopLimitCheck.isFull) {
-        showError(`Sorry, the ${formData.workshop} workshop is full. Registration limit of ${workshopLimitCheck.limit} participants has been reached.`);
-        setLoading(false);
-        return;
-      }
       let paymentProofUrl = '';
       
       // Upload payment proof if provided
@@ -394,34 +429,89 @@ export default function Register() {
         paymentProofUrl = await uploadToCloudinary(formData.paymentProof, 'payment-proofs');
       }
 
-      // Prepare registration data
-      const registrationData = {
-        fullName: formData.fullName,
-        email: formData.email,
-        mobile: formData.mobile,
-        college: formData.college === 'other' ? formData.otherCollege : formData.college,
-        prnNumber: formData.prnNumber,
-        yearOfStudy: formData.yearOfStudy,
-        stream: formData.stream === 'other' ? formData.otherStream : formData.stream,
-        workshop: formData.workshop,
-        preferredLanguage: formData.preferredLanguage,
-        transactionId: adminSettings.paymentRequired ? formData.transactionId : 'FREE_REGISTRATION',
-        paymentProofUrl: adminSettings.paymentRequired ? paymentProofUrl : '',
-        registrationDate: new Date(),
-        status: adminSettings.paymentRequired ? 'pending' : 'approved' // Auto-approve free registrations
-      };
+      // Use transaction to ensure atomic registration with limit checking
+      await runTransaction(db, async (transaction) => {
+        // Re-check workshop limit within transaction
+        const settingsDoc = await transaction.get(doc(db, 'adminSettings', 'aboutWorkshops'));
+        if (settingsDoc.exists()) {
+          const workshops = settingsDoc.data().workshops || [];
+          let selectedWorkshop = workshops.find(w => 
+            w.name.toLowerCase().trim() === formData.workshop.toLowerCase().trim()
+          );
+          
+          // If no exact match, try fuzzy matching for common variations
+          if (!selectedWorkshop) {
+            selectedWorkshop = workshops.find(w => {
+              const workshopSettingName = w.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+              const workshopFormName = formData.workshop.toLowerCase().replace(/[^a-z0-9]/g, '');
+              return workshopSettingName === workshopFormName;
+            });
+          }
+          
+          if (selectedWorkshop && selectedWorkshop.registrationLimit) {
+            // Count current approved registrations within transaction
+            const registrationsSnapshot = await getDocs(
+              query(collection(db, 'registrations'), where('status', '==', 'approved'))
+            );
+            
+            let currentCount = 0;
+            registrationsSnapshot.forEach(doc => {
+              const data = doc.data();
+              if (data.workshop) {
+                // Try exact match first
+                let isMatch = data.workshop.toLowerCase().trim() === formData.workshop.toLowerCase().trim();
+                
+                // If no exact match, try fuzzy matching
+                if (!isMatch) {
+                  const registrationName = data.workshop.toLowerCase().replace(/[^a-z0-9]/g, '');
+                  const formName = formData.workshop.toLowerCase().replace(/[^a-z0-9]/g, '');
+                  isMatch = registrationName === formName;
+                }
+                
+                if (isMatch) {
+                  currentCount++;
+                }
+              }
+            });
 
-      await addDoc(collection(db, 'registrations'), registrationData);
-      
-      // Create notification for admins about new registration
-      await addDoc(collection(db, 'notifications'), {
-        type: 'new_registration',
-        title: 'New Registration Received',
-        message: `${formData.fullName} registered for ${formData.workshop}`,
-        email: formData.email,
-        workshop: formData.workshop,
-        createdAt: new Date(),
-        read: false
+            if (currentCount >= selectedWorkshop.registrationLimit) {
+              throw new Error(`Workshop is full. Registration limit of ${selectedWorkshop.registrationLimit} participants has been reached.`);
+            }
+          }
+        }
+
+        // Prepare registration data
+        const registrationData = {
+          fullName: formData.fullName,
+          email: formData.email,
+          mobile: formData.mobile,
+          college: formData.college === 'other' ? formData.otherCollege : formData.college,
+          prnNumber: formData.prnNumber,
+          yearOfStudy: formData.yearOfStudy,
+          stream: formData.stream === 'other' ? formData.otherStream : formData.stream,
+          workshop: formData.workshop,
+          preferredLanguage: formData.preferredLanguage,
+          transactionId: adminSettings.paymentRequired ? formData.transactionId : 'FREE_REGISTRATION',
+          paymentProofUrl: adminSettings.paymentRequired ? paymentProofUrl : '',
+          registrationDate: new Date(),
+          status: adminSettings.paymentRequired ? 'pending' : 'approved' // Auto-approve free registrations
+        };
+
+        // Add registration within transaction
+        const registrationRef = doc(collection(db, 'registrations'));
+        transaction.set(registrationRef, registrationData);
+        
+        // Add notification within transaction
+        const notificationRef = doc(collection(db, 'notifications'));
+        transaction.set(notificationRef, {
+          type: 'new_registration',
+          title: 'New Registration Received',
+          message: `${formData.fullName} registered for ${formData.workshop}`,
+          email: formData.email,
+          workshop: formData.workshop,
+          createdAt: new Date(),
+          read: false
+        });
       });
       
       // Set registered user data for celebration modal
@@ -437,37 +527,28 @@ export default function Register() {
       // setSuccess(true); // Removed to prevent success modal popup
     } catch (error) {
       console.error('Error submitting registration:', error);
-      showError('Registration failed. Please try again.');
+      if (error.message.includes('Workshop is full')) {
+        showError(error.message);
+      } else {
+        showError('Registration failed. Please try again.');
+      }
     }
 
     setLoading(false);
   };
 
-  // Check if registrations are closed
-  if (adminSettings.registrationActive === false) {
+  // Show loading screen while settings are being loaded
+  if (settingsLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-50 to-orange-100">
-        <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-8 text-center">
-          <div className="mb-6">
-            <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-red-100">
-              <svg className="h-8 w-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18.364 5.636M5.636 18.364l12.728-12.728" />
-              </svg>
-            </div>
-          </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">Registrations Closed</h2>
-          <p className="text-gray-600 mb-6">
-            Registration for INVICTA 2025 workshops is currently closed. Please check back later or contact the organizers for more information.
-          </p>
-          <div className="bg-gray-50 rounded-lg p-4">
-            <p className="text-sm text-gray-500">
-              For inquiries, please contact the event organizers.
-            </p>
-          </div>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading registration form...</p>
         </div>
       </div>
     );
   }
+
 
   if (success) {
     return (
@@ -1144,6 +1225,84 @@ export default function Register() {
         whatsappLink={registeredUserData?.whatsappLink}
         isFreeRegistration={registeredUserData?.isFreeRegistration}
       />
+
+      {/* Registration Closed Modal */}
+      {showClosedModal && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+            <div className="fixed inset-0 transition-opacity" aria-hidden="true">
+              <div className="absolute inset-0 bg-gray-500 opacity-75"></div>
+            </div>
+
+            <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+              <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="flex items-center">
+                    <img className="h-12 w-auto mr-3" src="/Invicta.png" alt="INVICTA 2025" />
+                    <h3 className="text-xl font-bold text-gray-900">INVICTA 2025</h3>
+                  </div>
+                  <button
+                    onClick={() => setShowClosedModal(false)}
+                    className="text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+
+                <div className="text-center">
+                  <div className="mb-6">
+                    <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-red-100">
+                      <svg className="h-8 w-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18.364 5.636M5.636 18.364l12.728-12.728" />
+                      </svg>
+                    </div>
+                  </div>
+                  
+                  <h2 className="text-2xl font-bold text-gray-900 mb-4">Registrations Closed</h2>
+                  <p className="text-gray-600 mb-6">
+                    Registration for INVICTA 2025 workshops is currently closed as all workshops have reached their maximum capacity.
+                  </p>
+                  
+                  {/* Dynamic Spot Entry Message */}
+                  {adminSettings.spotEntryEnabled && (
+                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-6 mb-6">
+                      <div className="flex items-center justify-center mb-3">
+                        <svg className="h-6 w-6 text-blue-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <h3 className="text-lg font-semibold text-blue-900">Spot Entry Available</h3>
+                      </div>
+                      <p className="text-blue-800 text-sm leading-relaxed">
+                        <strong>Good news!</strong> {adminSettings.spotEntryMessage}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <p className="text-sm text-gray-500 mb-2">
+                      <strong>For inquiries and updates:</strong>
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      Please contact the event organizers or follow our official announcements for real-time updates on seat availability.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                <button
+                  onClick={() => setShowClosedModal(false)}
+                  className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -14,6 +14,8 @@ export default function AdminSettings() {
     enableRecaptcha: false, // Disabled by default
     registrationActive: true, // New setting to control registration status
     paymentRequired: true, // New setting to control payment requirement
+    spotEntryEnabled: true, // Control spot entry availability
+    spotEntryMessage: 'Spot entries will be allowed if seats become available due to cancellations or no-shows. Please arrive at the venue early on the workshop day to secure your spot.',
     languages: ['Hindi', 'Marathi', 'English'], // Available language options
     colleges: ['Kit\'s College of Engineering Kolhapur'],
     years: ['First Year', 'Second Year', 'Third Year', 'Fourth Year'],
@@ -474,6 +476,62 @@ export default function AdminSettings() {
               <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-md">
                 <p className="text-green-800 text-sm">
                   <strong>✅ Free Registration:</strong> Users will see "FREE REGISTRATION" instead of payment details.
+                </p>
+              </div>
+            )}
+
+            {/* Spot Entry Control */}
+            <div className="flex items-center justify-between p-4 border rounded-lg mt-4">
+              <div>
+                <label htmlFor="spotEntryEnabled" className="text-sm font-medium text-gray-900">
+                  Spot Entry Availability
+                </label>
+                <p className="text-sm text-gray-500">
+                  Show spot entry message when workshops are full
+                </p>
+              </div>
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="spotEntryEnabled"
+                  name="spotEntryEnabled"
+                  checked={settings.spotEntryEnabled}
+                  onChange={(e) => setSettings({ ...settings, spotEntryEnabled: e.target.checked })}
+                  className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                />
+                <label htmlFor="spotEntryEnabled" className={`ml-2 text-sm font-medium ${
+                  settings.spotEntryEnabled ? 'text-indigo-700' : 'text-gray-500'
+                }`}>
+                  {settings.spotEntryEnabled ? 'Enabled' : 'Disabled'}
+                </label>
+              </div>
+            </div>
+
+            {/* Spot Entry Message */}
+            {settings.spotEntryEnabled && (
+              <div className="mt-4 p-4 border rounded-lg">
+                <label htmlFor="spotEntryMessage" className="block text-sm font-medium text-gray-900 mb-2">
+                  Spot Entry Message
+                </label>
+                <textarea
+                  id="spotEntryMessage"
+                  name="spotEntryMessage"
+                  value={settings.spotEntryMessage}
+                  onChange={handleInputChange}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  placeholder="Enter the message to show when workshops are full..."
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  This message will be displayed to users when workshops reach their capacity limit.
+                </p>
+              </div>
+            )}
+
+            {!settings.spotEntryEnabled && (
+              <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-md">
+                <p className="text-gray-600 text-sm">
+                  <strong>ℹ️ Spot Entry Disabled:</strong> Users will only see "Workshop Full" message without spot entry information.
                 </p>
               </div>
             )}

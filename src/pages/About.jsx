@@ -7,10 +7,40 @@ export default function About() {
   const [loading, setLoading] = useState(true);
   const [selectedWorkshop, setSelectedWorkshop] = useState(null);
   const [registrationCounts, setRegistrationCounts] = useState({});
+  const [refreshing, setRefreshing] = useState(false);
+  const [adminSettings, setAdminSettings] = useState({
+    spotEntryEnabled: true,
+    spotEntryMessage: 'Spot entries will be allowed if seats become available due to cancellations or no-shows. Please arrive at the venue early on the workshop day to secure your spot.'
+  });
 
   useEffect(() => {
     loadWorkshops();
-  }, []);
+    loadAdminSettings();
+    
+    // Set up interval to refresh registration counts every 30 seconds
+    const interval = setInterval(() => {
+      if (workshops.length > 0) {
+        loadRegistrationCounts(workshops);
+      }
+    }, 30000);
+    
+    return () => clearInterval(interval);
+  }, [workshops.length]);
+
+  const loadAdminSettings = async () => {
+    try {
+      const settingsDoc = await getDoc(doc(db, 'adminSettings', 'formConfig'));
+      if (settingsDoc.exists()) {
+        const data = settingsDoc.data();
+        setAdminSettings({
+          spotEntryEnabled: data.spotEntryEnabled ?? true,
+          spotEntryMessage: data.spotEntryMessage || 'Spot entries will be allowed if seats become available due to cancellations or no-shows. Please arrive at the venue early on the workshop day to secure your spot.'
+        });
+      }
+    } catch (error) {
+      console.error('Error loading admin settings:', error);
+    }
+  };
 
   const loadWorkshops = async () => {
     try {
@@ -38,19 +68,45 @@ export default function About() {
         query(collection(db, 'registrations'), where('status', '==', 'approved'))
       );
       
-      // Count registrations per workshop
+      // Count registrations per workshop with case-insensitive matching
+      const allRegistrations = [];
       registrationsSnapshot.forEach(doc => {
         const data = doc.data();
         const workshop = data.workshop;
         if (workshop) {
-          counts[workshop] = (counts[workshop] || 0) + 1;
+          allRegistrations.push(workshop);
+          // Find matching workshop name from workshopsData (case-insensitive)
+          let matchingWorkshop = workshopsData.find(w => 
+            w.name.toLowerCase().trim() === workshop.toLowerCase().trim()
+          );
+          
+          // If no exact match, try fuzzy matching for common variations
+          if (!matchingWorkshop) {
+            matchingWorkshop = workshopsData.find(w => {
+              const workshopName = w.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+              const registrationName = workshop.toLowerCase().replace(/[^a-z0-9]/g, '');
+              return workshopName === registrationName;
+            });
+          }
+          
+          const workshopKey = matchingWorkshop ? matchingWorkshop.name : workshop;
+          counts[workshopKey] = (counts[workshopKey] || 0) + 1;
         }
       });
       
+      console.log('All workshop names in registrations:', [...new Set(allRegistrations)]);
+      console.log('Workshop names from admin settings:', workshopsData.map(w => w.name));
+      console.log('Registration counts loaded:', counts);
       setRegistrationCounts(counts);
     } catch (error) {
       console.error('Error loading registration counts:', error);
     }
+  };
+
+  const refreshCounts = async () => {
+    setRefreshing(true);
+    await loadRegistrationCounts(workshops);
+    setRefreshing(false);
   };
 
   const formatDate = (dateString) => {
@@ -87,12 +143,24 @@ export default function About() {
                 <p className="text-gray-600">Workshop Series</p>
               </div>
             </div>
-            <button
-              onClick={() => window.location.href = '/'}
-              className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition-colors"
-            >
-              Register Now
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={refreshCounts}
+                disabled={refreshing}
+                className="bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                <svg className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                {refreshing ? 'Refreshing...' : 'Refresh'}
+              </button>
+              <button
+                onClick={() => window.location.href = '/'}
+                className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition-colors"
+              >
+                Register Now
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -214,11 +282,18 @@ export default function About() {
                   )}
 
                   {workshop.registrationLimit && (registrationCounts[workshop.name] || 0) >= workshop.registrationLimit ? (
-                    <div className="w-full bg-red-100 text-red-700 py-2 px-4 rounded-md text-sm font-medium text-center border border-red-200">
-                      <svg className="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.268 18.5c-.77.833.192 2.5 1.732 2.5z" />
-                      </svg>
-                      Workshop Full
+                    <div className="w-full space-y-2">
+                      <div className="bg-red-100 text-red-700 py-2 px-4 rounded-md text-sm font-medium text-center border border-red-200">
+                        <svg className="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.268 18.5c-.77.833.192 2.5 1.732 2.5z" />
+                        </svg>
+                        Workshop Full
+                      </div>
+                      {adminSettings.spotEntryEnabled && (
+                        <div className="bg-blue-50 text-blue-700 py-1 px-3 rounded-md text-xs text-center border border-blue-200">
+                          Spot entries available on workshop day
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <button
@@ -515,28 +590,62 @@ export default function About() {
                 </div>
               </div>
 
-              <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+              <div className="bg-gray-50 px-4 py-3 sm:px-6">
                 {selectedWorkshop.registrationLimit && (registrationCounts[selectedWorkshop.name] || 0) >= selectedWorkshop.registrationLimit ? (
-                  <div className="w-full inline-flex justify-center rounded-md border border-red-300 shadow-sm px-4 py-2 bg-red-50 text-base font-medium text-red-700 sm:ml-3 sm:w-auto sm:text-sm">
-                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.268 18.5c-.77.833.192 2.5 1.732 2.5z" />
-                    </svg>
-                    Registrations Full
+                  <div className="space-y-4">
+                    {/* Workshop Full Message */}
+                    <div className="bg-gradient-to-r from-red-50 to-orange-50 border border-red-200 rounded-lg p-4">
+                      <div className="flex items-center justify-center mb-2">
+                        <svg className="w-5 h-5 text-red-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.268 18.5c-.77.833.192 2.5 1.732 2.5z" />
+                        </svg>
+                        <span className="text-red-800 font-semibold">Workshop Full</span>
+                      </div>
+                      <p className="text-red-700 text-sm text-center">
+                        This workshop has reached its maximum capacity of {selectedWorkshop.registrationLimit} participants.
+                      </p>
+                    </div>
+
+                    {/* Dynamic Spot Entry Information */}
+                    {adminSettings.spotEntryEnabled && (
+                      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4">
+                        <div className="flex items-center justify-center mb-2">
+                          <svg className="w-5 h-5 text-blue-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <span className="text-blue-800 font-semibold">Spot Entry Available</span>
+                        </div>
+                        <p className="text-blue-700 text-sm text-center leading-relaxed">
+                          <strong>Good news!</strong> {adminSettings.spotEntryMessage}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="flex justify-center">
+                      <button
+                        onClick={() => setSelectedWorkshop(null)}
+                        className="inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:text-sm"
+                      >
+                        Close
+                      </button>
+                    </div>
                   </div>
                 ) : (
-                  <button
-                    onClick={() => window.location.href = '/'}
-                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm"
-                  >
-                    Register Now
-                  </button>
+                  <div className="flex justify-center space-x-3">
+                    <button
+                      onClick={() => window.location.href = '/'}
+                      className="inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:text-sm"
+                    >
+                      Register Now
+                    </button>
+                    <button
+                      onClick={() => setSelectedWorkshop(null)}
+                      className="inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:text-sm"
+                    >
+                      Close
+                    </button>
+                  </div>
                 )}
-                <button
-                  onClick={() => setSelectedWorkshop(null)}
-                  className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
-                >
-                  Close
-                </button>
               </div>
             </div>
           </div>
