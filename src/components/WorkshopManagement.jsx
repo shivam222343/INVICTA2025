@@ -5,6 +5,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useToast } from '../contexts/ToastContext';
 import UserDetailsModal from './UserDetailsModal';
 import QRCode from 'qrcode';
+import JSZip from 'jszip';
 import { uploadToCloudinary, cloudinaryConfig } from '../utils/cloudinary';
 
 const WorkshopManagement = ({ registrations }) => {
@@ -19,6 +20,8 @@ const WorkshopManagement = ({ registrations }) => {
   const [sortOrder, setSortOrder] = useState('asc');
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   const [newMember, setNewMember] = useState({ name: '', email: '', year: '' });
+  const [editingMember, setEditingMember] = useState(null);
+  const [showEditMemberModal, setShowEditMemberModal] = useState(false);
   const [uploadingCertificate, setUploadingCertificate] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -36,10 +39,11 @@ const WorkshopManagement = ({ registrations }) => {
     mobile: false,
     participantId: false,
     qrCodeURL: true,
-    certificateURL: false
+    certificateURL: false,
+    localFilePath: false
   });
   
-  const { showToast } = useToast();
+  const { success: showSuccess, error: showError, info: showInfo } = useToast();
 
   // Get workshop statistics
   const getWorkshopStats = () => {
@@ -137,10 +141,10 @@ const WorkshopManagement = ({ registrations }) => {
         )
       );
       
-      showToast(`Registration ${newStatus} successfully`, 'success');
+      showSuccess(`Registration ${newStatus} successfully`);
     } catch (error) {
       console.error('Error updating status:', error);
-      showToast('Failed to update status', 'error');
+      showError('Failed to update status');
     }
   };
 
@@ -163,10 +167,10 @@ const WorkshopManagement = ({ registrations }) => {
         return updated;
       });
       
-      showToast(`Attendance marked as ${attendanceStatus}`, 'success');
+      showSuccess(`Attendance marked as ${attendanceStatus}`);
     } catch (error) {
       console.error('Error updating attendance:', error);
-      showToast('Failed to update attendance', 'error');
+      showError('Failed to update attendance');
     }
   };
 
@@ -228,7 +232,7 @@ const WorkshopManagement = ({ registrations }) => {
         )
       );
       
-      showToast('Certificate uploaded successfully', 'success');
+      showSuccess('Certificate uploaded successfully');
       
       // Auto-close modal after 2 seconds
       setTimeout(() => {
@@ -237,7 +241,7 @@ const WorkshopManagement = ({ registrations }) => {
       
     } catch (error) {
       console.error('Error uploading certificate:', error);
-      showToast('Failed to upload certificate', 'error');
+      showError('Failed to upload certificate');
       setShowUploadModal(false);
     } finally {
       setUploadingCertificate(null);
@@ -255,7 +259,7 @@ const WorkshopManagement = ({ registrations }) => {
       const emailSnapshot = await getDocs(emailQuery);
       
       if (!emailSnapshot.empty) {
-        showToast('Email already registered', 'error');
+        showError('Email already registered');
         return;
       }
       
@@ -284,10 +288,54 @@ const WorkshopManagement = ({ registrations }) => {
       setNewMember({ name: '', email: '', year: '' });
       setShowAddMemberModal(false);
       
-      showToast('Member added successfully', 'success');
+      showSuccess('Member added successfully');
     } catch (error) {
       console.error('Error adding member:', error);
-      showToast('Failed to add member', 'error');
+      showError('Failed to add member');
+    }
+  };
+
+  // Edit member information
+  const editMember = async () => {
+    try {
+      // Check if email already exists for other participants (excluding current one)
+      const emailQuery = query(
+        collection(db, 'registrations'),
+        where('email', '==', editingMember.email)
+      );
+      const emailSnapshot = await getDocs(emailQuery);
+      
+      const existingWithSameEmail = emailSnapshot.docs.find(doc => doc.id !== editingMember.id);
+      if (existingWithSameEmail) {
+        showError('Email already registered for another participant');
+        return;
+      }
+      
+      // Update registration in Firebase
+      await updateDoc(doc(db, 'registrations', editingMember.id), {
+        name: editingMember.name,
+        email: editingMember.email,
+        yearOfStudy: editingMember.year,
+        updatedAt: new Date()
+      });
+      
+      // Update local state
+      setWorkshopParticipants(prev =>
+        prev.map(participant =>
+          participant.id === editingMember.id
+            ? { ...participant, name: editingMember.name, email: editingMember.email, yearOfStudy: editingMember.year }
+            : participant
+        )
+      );
+      
+      // Close modal and reset
+      setShowEditMemberModal(false);
+      setEditingMember(null);
+      
+      showSuccess('Member information updated successfully');
+    } catch (error) {
+      console.error('Error updating member:', error);
+      showError('Failed to update member information');
     }
   };
 
@@ -301,39 +349,49 @@ const WorkshopManagement = ({ registrations }) => {
       );
       
       if (presentParticipants.length === 0) {
-        showToast('No QR codes found for present participants', 'error');
+        showError('No QR codes found for present participants');
         return;
       }
       
-      // Alternative approach without JSZip - create individual downloads
-      showToast('Starting individual QR downloads...', 'info');
+      showInfo('Creating ZIP file with QR codes...');
       
+      const zip = new JSZip();
+      const qrFolder = zip.folder(`${selectedWorkshop}_QR_Codes`);
+      
+      // Download and add each QR code to the ZIP
       for (let i = 0; i < presentParticipants.length; i++) {
         const participant = presentParticipants[i];
         const participantName = (participant.name || participant.fullName || `Participant_${i+1}`)
           .replace(/[^a-zA-Z0-9]/g, '_');
         
         try {
-          // Create download link for each QR code
-          const link = document.createElement('a');
-          link.href = participant.qrCodeURL;
-          link.download = `${participantName}.png`;
-          link.target = '_blank';
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
+          // Fetch the QR code image from Cloudinary
+          const response = await fetch(participant.qrCodeURL);
+          const blob = await response.blob();
           
-          // Small delay between downloads
-          await new Promise(resolve => setTimeout(resolve, 500));
+          // Add the image to the ZIP folder
+          qrFolder.file(`${participantName}_QR.png`, blob);
+          
         } catch (error) {
-          console.error(`Failed to download QR for ${participantName}:`, error);
+          console.error(`Failed to fetch QR for ${participantName}:`, error);
         }
       }
       
-      showToast(`Started download of ${presentParticipants.length} QR codes`, 'success');
+      // Generate and download the ZIP file
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const url = window.URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${selectedWorkshop}_QR_Codes_${new Date().toISOString().split('T')[0]}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      
+      showSuccess(`Downloaded ZIP file with ${presentParticipants.length} QR codes`);
     } catch (error) {
       console.error('Error downloading QR codes:', error);
-      showToast('Failed to download QR codes', 'error');
+      showError('Failed to download QR codes');
     } finally {
       setGeneratingQRs(false);
     }
@@ -349,7 +407,7 @@ const WorkshopManagement = ({ registrations }) => {
       );
       
       if (presentParticipants.length === 0) {
-        showToast('No present participants found', 'error');
+        showError('No present participants found');
         return;
       }
       
@@ -359,7 +417,7 @@ const WorkshopManagement = ({ registrations }) => {
         .map(([field]) => field);
       
       if (selectedFields.length === 0) {
-        showToast('Please select at least one field to export', 'error');
+        showError('Please select at least one field to export');
         return;
       }
       
@@ -372,7 +430,8 @@ const WorkshopManagement = ({ registrations }) => {
         mobile: 'Mobile Number',
         participantId: 'Participant ID',
         qrCodeURL: 'QR Code Link',
-        certificateURL: 'Certificate Link'
+        certificateURL: 'Certificate Link',
+        localFilePath: 'Local File Path'
       };
       
       // Create CSV headers
@@ -385,6 +444,11 @@ const WorkshopManagement = ({ registrations }) => {
           // Handle name field specifically to check both name and fullName
           if (field === 'name') {
             value = participant.name || participant.fullName || 'N/A';
+          } else if (field === 'localFilePath') {
+            // Generate local file path ending with participant name.png
+            const participantName = (participant.name || participant.fullName || 'Participant')
+              .replace(/[^a-zA-Z0-9]/g, '_');
+            value = `./QR_Codes/${participantName}.png`;
           } else {
             value = participant[field] || 'N/A';
           }
@@ -411,11 +475,11 @@ const WorkshopManagement = ({ registrations }) => {
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
       
-      showToast(`CSV exported successfully with ${presentParticipants.length} participants`, 'success');
+      showSuccess(`CSV exported successfully with ${presentParticipants.length} participants`);
       setShowExportModal(false);
     } catch (error) {
       console.error('Error generating CSV:', error);
-      showToast('Failed to generate CSV', 'error');
+      showError('Failed to generate CSV');
     } finally {
       setGeneratingCSV(false);
     }
@@ -466,7 +530,7 @@ const WorkshopManagement = ({ registrations }) => {
       console.log('Present participants found:', presentParticipants.length);
       
       if (presentParticipants.length === 0) {
-        showToast(`No present participants found. Total participants: ${workshopParticipants.length}`, 'error');
+        showError(`No present participants found. Total participants: ${workshopParticipants.length}`);
         setGeneratingQRs(false);
         setShowQRModal(false);
         return;
@@ -533,11 +597,11 @@ const WorkshopManagement = ({ registrations }) => {
         })
       );
       
-      showToast(`Generated ${qrResults.length} QR codes successfully`, 'success');
+      showSuccess(`Generated ${qrResults.length} QR codes successfully`);
       
     } catch (error) {
       console.error('Error generating QR codes:', error);
-      showToast('Failed to generate QR codes', 'error');
+      showError('Failed to generate QR codes');
     } finally {
       setGeneratingQRs(false);
     }
@@ -888,6 +952,33 @@ const WorkshopManagement = ({ registrations }) => {
                                   </svg>
                                   <span>Download</span>
                                 </button>
+                                <button
+                                  onClick={() => {
+                                    const confirmed = window.confirm(
+                                      `Are you sure you want to update the certificate for ${participant.name || participant.fullName || 'this participant'}?\n\n` +
+                                      'This will replace the existing certificate. Please ensure the new certificate is correct.'
+                                    );
+                                    if (confirmed) {
+                                      const fileInput = document.createElement('input');
+                                      fileInput.type = 'file';
+                                      fileInput.accept = '.pdf,.jpg,.jpeg,.png';
+                                      fileInput.onchange = (e) => {
+                                        const file = e.target.files[0];
+                                        if (file) {
+                                          uploadCertificate(participant.id, file);
+                                        }
+                                      };
+                                      fileInput.click();
+                                    }
+                                  }}
+                                  className="text-orange-600 hover:text-orange-900 text-xs font-medium flex items-center space-x-1"
+                                  disabled={uploadingCertificate === participant.id}
+                                >
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                  </svg>
+                                  <span>{uploadingCertificate === participant.id ? 'Updating...' : 'Update'}</span>
+                                </button>
                               </div>
                               {participant.qrCodeURL && (
                                 <button
@@ -976,6 +1067,23 @@ const WorkshopManagement = ({ registrations }) => {
                             className="text-red-600 hover:text-red-900 transition-colors"
                           >
                             Reject
+                          </button>
+                        )}
+                        
+                        {participant.isManuallyAdded && (
+                          <button
+                            onClick={() => {
+                              setEditingMember({
+                                id: participant.id,
+                                name: participant.name,
+                                email: participant.email,
+                                year: participant.yearOfStudy
+                              });
+                              setShowEditMemberModal(true);
+                            }}
+                            className="text-purple-600 hover:text-purple-900 transition-colors"
+                          >
+                            Edit Info
                           </button>
                         )}
                       </td>
@@ -1122,7 +1230,8 @@ const WorkshopManagement = ({ registrations }) => {
                     mobile: 'Mobile Number',
                     participantId: 'Participant ID',
                     qrCodeURL: 'QR Code Link (Cloudinary)',
-                    certificateURL: 'Certificate Link'
+                    certificateURL: 'Certificate Link',
+                    localFilePath: 'Local File Path'
                   };
                   
                   return (
@@ -1154,6 +1263,11 @@ const WorkshopManagement = ({ registrations }) => {
                         {field === 'participantId' && (
                           <p className="text-xs text-gray-500 mt-1">
                             Unique identifier for each participant
+                          </p>
+                        )}
+                        {field === 'localFilePath' && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            Local file path format: ./QR_Codes/ParticipantName.png
                           </p>
                         )}
                       </div>
@@ -1352,6 +1466,69 @@ const WorkshopManagement = ({ registrations }) => {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Edit Member Modal */}
+      {showEditMemberModal && editingMember && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Edit Member Information</h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                <input
+                  type="text"
+                  value={editingMember.name}
+                  onChange={(e) => setEditingMember(prev => ({ ...prev, name: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  placeholder="Enter full name"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={editingMember.email}
+                  onChange={(e) => setEditingMember(prev => ({ ...prev, email: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  placeholder="Enter email address"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Year</label>
+                <input
+                  type="text"
+                  value={editingMember.year}
+                  onChange={(e) => setEditingMember(prev => ({ ...prev, year: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  placeholder="e.g., 3rd Year, Final Year"
+                />
+              </div>
+            </div>
+            
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowEditMemberModal(false);
+                  setEditingMember(null);
+                }}
+                className="px-4 py-2 text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={editMember}
+                disabled={!editingMember.name || !editingMember.email || !editingMember.year}
+                className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Update Member
+              </button>
+            </div>
           </div>
         </div>
       )}

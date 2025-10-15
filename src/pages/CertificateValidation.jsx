@@ -221,7 +221,9 @@ const CertificateValidation = () => {
                 Verification Information
               </h4>
               <div className="text-sm text-blue-800 space-y-2">
-                <p>• This certificate was issued by INVICTA 2025 organizing committee</p>
+                <p>• This certificate was issued by INVICTA - The Workshop Series organizing committee</p>
+                <p>• Organized by Team Mavericks at Kolhapur Institute of Technology's College of Engineering, Kolhapur</p>
+                <p>• Workshop conducted on 12th and 13th October 2025</p>
                 <p>• The participant successfully attended the workshop</p>
                 <p>• Certificate authenticity verified through secure database</p>
                 <p>• Verification performed on: {new Date().toLocaleDateString()}</p>

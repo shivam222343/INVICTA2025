@@ -648,12 +648,11 @@ useEffect(() => {
     );
   }
 
-  console.log(currentUser?.role);
   
 
   return (
     <>
-      <style jsx>{`
+      <style>{`
         .mobile-scroll-container::-webkit-scrollbar {
           height: 6px;
         }

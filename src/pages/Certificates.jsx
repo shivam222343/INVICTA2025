@@ -188,6 +188,20 @@ const Certificates = () => {
             Ready to claim your digital badge of honor? Let's see if you actually showed up! 😄
           </p>
           
+          {/* Workshop Series Information */}
+          <div className="bg-gradient-to-r from-indigo-100 to-purple-100 rounded-2xl p-6 mb-8 max-w-4xl mx-auto">
+            <div className="text-lg font-semibold text-indigo-800 mb-3">
+              📚 About INVICTA - The Workshop Series
+            </div>
+            <p className="text-indigo-700 text-left leading-relaxed">
+              <strong>INVICTA The Workshop Series</strong>, organized by Team Mavericks at Kolhapur Institute of Technology's College of Engineering, Kolhapur (Empowered Autonomous), was successfully conducted on <strong>12th and 13th October 2025</strong>.
+            </p>
+            <br />
+            <p className="text-indigo-700 text-left leading-relaxed">
+              The series featured four specialized hands-on workshops namely <strong>Build It Better</strong>, <strong>Think, Blink & Build</strong>, <strong>BlendForge</strong> and <strong>CamVision</strong>. Each workshop was designed to enhance students' practical understanding through immersive and activity-based learning sessions.
+            </p>
+          </div>
+          
           {/* Funny Taunts Carousel */}
           <div className="bg-gradient-to-r from-purple-100 to-blue-100 rounded-2xl p-6 mb-8 max-w-3xl mx-auto">
             <div className="text-lg text-gray-700 font-medium mb-2">
