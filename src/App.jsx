@@ -10,6 +10,9 @@ import Login from './pages/Login';
 import Admin from './pages/Admin';
 import BuildItBetter from './pages/BuildItBetter';
 import About from './pages/About';
+import Certificates from './pages/Certificates';
+import MyCertificates from './pages/MyCertificates';
+import CertificateValidation from './pages/CertificateValidation';
 
 // Protected Home Route Component
 function ProtectedHome() {
@@ -34,6 +37,9 @@ function App() {
               <Route path="/register" element={<Register />} />
               <Route path="/login" element={<Login />} />
               <Route path="/about" element={<About />} />
+              <Route path="/certificates" element={<Certificates />} />
+              <Route path="/my-certificates" element={<MyCertificates />} />
+              <Route path="/certificate-validation/:participantId" element={<CertificateValidation />} />
               <Route path="/build-it-better" element={<BuildItBetter />} />
               <Route 
                 path="/admin" 
