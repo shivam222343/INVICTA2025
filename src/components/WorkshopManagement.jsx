@@ -20,6 +20,7 @@ const WorkshopManagement = ({ registrations }) => {
   const [sortOrder, setSortOrder] = useState('asc');
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   const [newMember, setNewMember] = useState({ name: '', email: '', year: '' });
+  const [generateParticipantId, setGenerateParticipantId] = useState(false);
   const [editingMember, setEditingMember] = useState(null);
   const [showEditMemberModal, setShowEditMemberModal] = useState(false);
   const [uploadingCertificate, setUploadingCertificate] = useState(null);
@@ -31,6 +32,7 @@ const WorkshopManagement = ({ registrations }) => {
   const [generatingQRs, setGeneratingQRs] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
   const [generatedQRs, setGeneratedQRs] = useState([]);
+  const [generatingIndividualQR, setGeneratingIndividualQR] = useState(null);
   const [exportFields, setExportFields] = useState({
     name: true,
     email: false,
@@ -263,6 +265,12 @@ const WorkshopManagement = ({ registrations }) => {
         return;
       }
       
+      // Generate participant ID if checkbox is selected
+      let participantId = null;
+      if (generateParticipantId) {
+        participantId = `INVICTA_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      }
+      
       // Create new registration
       const newRegistration = {
         name: newMember.name,
@@ -275,7 +283,8 @@ const WorkshopManagement = ({ registrations }) => {
         stream: 'N/A',
         mobile: 'N/A',
         registrationDate: new Date(),
-        isManuallyAdded: true
+        isManuallyAdded: true,
+        ...(participantId && { participantId })
       };
       
       const docRef = await addDoc(collection(db, 'registrations'), newRegistration);
@@ -286,9 +295,10 @@ const WorkshopManagement = ({ registrations }) => {
       
       // Reset form and close modal
       setNewMember({ name: '', email: '', year: '' });
+      setGenerateParticipantId(false);
       setShowAddMemberModal(false);
       
-      showSuccess('Member added successfully');
+      showSuccess(`Member added successfully${participantId ? ' with Participant ID: ' + participantId : ''}`);
     } catch (error) {
       console.error('Error adding member:', error);
       showError('Failed to add member');
@@ -339,17 +349,18 @@ const WorkshopManagement = ({ registrations }) => {
     }
   };
 
-  // Download ZIP file with all QR codes for present participants
+  // Download ZIP file with all QR codes (both individual and bulk generated)
   const downloadQRZip = async () => {
     try {
       setGeneratingQRs(true);
       
-      const presentParticipants = workshopParticipants.filter(
-        participant => participant.attendance === 'present' && participant.qrCodeURL
+      // Get all participants with QR codes (regardless of attendance for broader export)
+      const participantsWithQR = workshopParticipants.filter(
+        participant => participant.qrCodeURL
       );
       
-      if (presentParticipants.length === 0) {
-        showError('No QR codes found for present participants');
+      if (participantsWithQR.length === 0) {
+        showError('No QR codes found for any participants');
         return;
       }
       
@@ -359,8 +370,8 @@ const WorkshopManagement = ({ registrations }) => {
       const qrFolder = zip.folder(`${selectedWorkshop}_QR_Codes`);
       
       // Download and add each QR code to the ZIP
-      for (let i = 0; i < presentParticipants.length; i++) {
-        const participant = presentParticipants[i];
+      for (let i = 0; i < participantsWithQR.length; i++) {
+        const participant = participantsWithQR[i];
         const participantName = (participant.name || participant.fullName || `Participant_${i+1}`)
           .replace(/[^a-zA-Z0-9]/g, '_');
         
@@ -369,8 +380,10 @@ const WorkshopManagement = ({ registrations }) => {
           const response = await fetch(participant.qrCodeURL);
           const blob = await response.blob();
           
-          // Add the image to the ZIP folder
-          qrFolder.file(`${participantName}_QR.png`, blob);
+          // Add the image to the ZIP folder with attendance status in filename
+          const attendanceStatus = participant.attendance || 'unknown';
+          const filename = `${participantName}_${attendanceStatus}_QR.png`;
+          qrFolder.file(filename, blob);
           
         } catch (error) {
           console.error(`Failed to fetch QR for ${participantName}:`, error);
@@ -382,13 +395,13 @@ const WorkshopManagement = ({ registrations }) => {
       const url = window.URL.createObjectURL(zipBlob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${selectedWorkshop}_QR_Codes_${new Date().toISOString().split('T')[0]}.zip`;
+      a.download = `${selectedWorkshop}_All_QR_Codes_${new Date().toISOString().split('T')[0]}.zip`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
       
-      showSuccess(`Downloaded ZIP file with ${presentParticipants.length} QR codes`);
+      showSuccess(`Downloaded ZIP file with ${participantsWithQR.length} QR codes`);
     } catch (error) {
       console.error('Error downloading QR codes:', error);
       showError('Failed to download QR codes');
@@ -607,6 +620,64 @@ const WorkshopManagement = ({ registrations }) => {
     }
   };
 
+  // Generate QR code for individual participant
+  const generateIndividualQR = async (participant) => {
+    try {
+      setGeneratingIndividualQR(participant.id);
+      
+      // Generate participant ID if not exists
+      let participantId = participant.participantId;
+      if (!participantId) {
+        participantId = `INVICTA_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      }
+      
+      // Generate QR code
+      const qrCodeData = `${window.location.origin}/certificate-validation/${participantId}`;
+      const qrCodeDataURL = await QRCode.toDataURL(qrCodeData, {
+        width: 300,
+        margin: 2,
+        color: {
+          dark: '#1f2937',
+          light: '#ffffff'
+        }
+      });
+      
+      // Upload QR to Cloudinary
+      const qrBlob = await fetch(qrCodeDataURL).then(r => r.blob());
+      const qrFile = new File([qrBlob], `${participantId}_qr.png`, { type: 'image/png' });
+      const qrCloudinaryURL = await uploadToCloudinary(qrFile, `qr-codes/${selectedWorkshop}`);
+      
+      // Update Firebase
+      const updateData = {
+        qrCodeURL: qrCloudinaryURL,
+        qrGeneratedAt: new Date()
+      };
+      
+      if (!participant.participantId) {
+        updateData.participantId = participantId;
+      }
+      
+      await updateDoc(doc(db, 'registrations', participant.id), updateData);
+      
+      // Update local state
+      setWorkshopParticipants(prev =>
+        prev.map(reg =>
+          reg.id === participant.id 
+            ? { ...reg, participantId, qrCodeURL: qrCloudinaryURL }
+            : reg
+        )
+      );
+      
+      showSuccess(`QR code generated successfully for ${participant.name}`);
+      
+    } catch (error) {
+      console.error('Error generating individual QR code:', error);
+      showError('Failed to generate QR code');
+    } finally {
+      setGeneratingIndividualQR(null);
+    }
+  };
+
   // Download QR code
   const downloadQR = (qrDataURL, participantName, participantId) => {
     const link = document.createElement('a');
@@ -767,16 +838,22 @@ const WorkshopManagement = ({ registrations }) => {
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3M7 13l3 3 7-7" />
                   </svg>
-                  <span>Download QR ZIP</span>
+                  <span>Download All QR ZIP</span>
                 </button>
               </div>
               
               {/* Debug Info */}
-              <div className="text-sm text-gray-600 bg-gray-100 px-3 py-1 rounded">
-                Present: {workshopParticipants.filter(p => p.attendance === 'present').length} | 
-                Absent: {workshopParticipants.filter(p => p.attendance === 'absent').length} | 
-                Undefined: {workshopParticipants.filter(p => !p.attendance || p.attendance === undefined).length} | 
-                Total: {workshopParticipants.length}
+              <div className="space-y-1">
+                <div className="text-sm text-gray-600 bg-gray-100 px-3 py-1 rounded">
+                  Present: {workshopParticipants.filter(p => p.attendance === 'present').length} | 
+                  Absent: {workshopParticipants.filter(p => p.attendance === 'absent').length} | 
+                  Undefined: {workshopParticipants.filter(p => !p.attendance || p.attendance === undefined).length} | 
+                  Total: {workshopParticipants.length}
+                </div>
+                <div className="text-sm text-blue-600 bg-blue-50 px-3 py-1 rounded">
+                  QR Codes Generated: {workshopParticipants.filter(p => p.qrCodeURL).length} | 
+                  Participant IDs: {workshopParticipants.filter(p => p.participantId).length}
+                </div>
               </div>
             </div>
           </div>
@@ -857,6 +934,9 @@ const WorkshopManagement = ({ registrations }) => {
                       Year/Stream
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Participant ID
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -887,6 +967,28 @@ const WorkshopManagement = ({ registrations }) => {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">
                           {participant.yearOfStudy} - {participant.stream}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">
+                          {participant.participantId ? (
+                            <div className="flex flex-col">
+                              <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded">
+                                {participant.participantId}
+                              </span>
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(participant.participantId);
+                                  showSuccess('Participant ID copied to clipboard');
+                                }}
+                                className="text-xs text-blue-600 hover:text-blue-800 mt-1 text-left"
+                              >
+                                Copy ID
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400 italic">Not generated</span>
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -1041,51 +1143,86 @@ const WorkshopManagement = ({ registrations }) => {
                           )}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                        <button
-                          onClick={() => {
-                            setSelectedUser(participant);
-                            setIsModalOpen(true);
-                          }}
-                          className="text-indigo-600 hover:text-indigo-900 transition-colors"
-                        >
-                          View
-                        </button>
-                        
-                        {participant.status !== 'approved' && (
-                          <button
-                            onClick={() => updateStatus(participant.id, 'approved')}
-                            className="text-green-600 hover:text-green-900 transition-colors"
-                          >
-                            Approve
-                          </button>
-                        )}
-                        
-                        {participant.status !== 'rejected' && (
-                          <button
-                            onClick={() => updateStatus(participant.id, 'rejected')}
-                            className="text-red-600 hover:text-red-900 transition-colors"
-                          >
-                            Reject
-                          </button>
-                        )}
-                        
-                        {participant.isManuallyAdded && (
-                          <button
-                            onClick={() => {
-                              setEditingMember({
-                                id: participant.id,
-                                name: participant.name,
-                                email: participant.email,
-                                year: participant.yearOfStudy
-                              });
-                              setShowEditMemberModal(true);
-                            }}
-                            className="text-purple-600 hover:text-purple-900 transition-colors"
-                          >
-                            Edit Info
-                          </button>
-                        )}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <div className="flex flex-col space-y-2">
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() => {
+                                setSelectedUser(participant);
+                                setIsModalOpen(true);
+                              }}
+                              className="text-indigo-600 hover:text-indigo-900 transition-colors"
+                            >
+                              View
+                            </button>
+                            
+                            {participant.status !== 'approved' && (
+                              <button
+                                onClick={() => updateStatus(participant.id, 'approved')}
+                                className="text-green-600 hover:text-green-900 transition-colors"
+                              >
+                                Approve
+                              </button>
+                            )}
+                            
+                            {participant.status !== 'rejected' && (
+                              <button
+                                onClick={() => updateStatus(participant.id, 'rejected')}
+                                className="text-red-600 hover:text-red-900 transition-colors"
+                              >
+                                Reject
+                              </button>
+                            )}
+                          </div>
+                          
+                          <div className="flex space-x-2">
+                            {participant.isManuallyAdded && (
+                              <button
+                                onClick={() => {
+                                  setEditingMember({
+                                    id: participant.id,
+                                    name: participant.name,
+                                    email: participant.email,
+                                    year: participant.yearOfStudy
+                                  });
+                                  setShowEditMemberModal(true);
+                                }}
+                                className="text-purple-600 hover:text-purple-900 transition-colors"
+                              >
+                                Edit Info
+                              </button>
+                            )}
+                            
+                            {participant.qrCodeURL ? (
+                              <div className="flex space-x-1">
+                                <button
+                                  onClick={() => window.open(participant.qrCodeURL, '_blank')}
+                                  className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200 transition-colors"
+                                >
+                                  View QR
+                                </button>
+                                <button
+                                  onClick={() => generateIndividualQR(participant)}
+                                  disabled={generatingIndividualQR === participant.id}
+                                  className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded hover:bg-orange-200 transition-colors disabled:opacity-50"
+                                >
+                                  {generatingIndividualQR === participant.id ? 'Regenerating...' : 'Regenerate QR'}
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => generateIndividualQR(participant)}
+                                disabled={generatingIndividualQR === participant.id}
+                                className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200 transition-colors disabled:opacity-50 flex items-center space-x-1"
+                              >
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+                                </svg>
+                                <span>{generatingIndividualQR === participant.id ? 'Generating...' : 'Generate QR'}</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1141,6 +1278,24 @@ const WorkshopManagement = ({ registrations }) => {
                   placeholder="e.g., 3rd Year, Final Year"
                 />
               </div>
+              
+              <div className="border-t pt-4">
+                <label className="flex items-center space-x-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={generateParticipantId}
+                    onChange={(e) => setGenerateParticipantId(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-gray-700">Generate Unique Participant ID</span>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Creates a unique ID for certificate validation and tracking. 
+                      Recommended for participants who will receive certificates.
+                    </p>
+                  </div>
+                </label>
+              </div>
             </div>
             
             <div className="flex justify-end space-x-3 mt-6">
@@ -1148,6 +1303,7 @@ const WorkshopManagement = ({ registrations }) => {
                 onClick={() => {
                   setShowAddMemberModal(false);
                   setNewMember({ name: '', email: '', year: '' });
+                  setGenerateParticipantId(false);
                 }}
                 className="px-4 py-2 text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 transition-colors"
               >
