@@ -188,7 +188,7 @@ const CertificateValidation = () => {
                       <label className="block text-sm font-medium text-gray-500 mb-1">
                         Certificate ID
                       </label>
-                      <p className="text-lg font-mono text-gray-900 bg-gray-100 px-3 py-2 rounded">
+                      <p className="text-sm font-mono text-gray-900 bg-gray-100 px-3 py-2 rounded break-all">
                         {participant.participantId}
                       </p>
                     </div>

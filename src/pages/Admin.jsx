@@ -155,7 +155,7 @@ useEffect(() => {
       changes.forEach((change) => {
         if (change.type === 'added' && !loading) {
           const newReg = { id: change.doc.id, ...change.doc.data() };
-          showInfo(`New registration: ${newReg.fullName} registered for ${newReg.workshop}`, 8000);
+          showInfo(`New registration: ${newReg.fullName || newReg.name} registered for ${newReg.workshop}`, 8000);
         }
       });
       
@@ -195,7 +195,7 @@ useEffect(() => {
       const csvContent = [
         headers.join(','),
         ...filteredRegistrations.map(reg => [
-          `"${reg.fullName}"`,
+          `"${reg.fullName || reg.name}"`,
           `"${reg.email}"`,
           `"${reg.mobile}"`,
           `"${reg.college}"`,
@@ -525,7 +525,7 @@ useEffect(() => {
                 <tbody>
                     ${dataToExport.map(reg => `
                         <tr>
-                            <td class="name-cell">${reg.fullName || 'N/A'}</td>
+                            <td class="name-cell">${reg.fullName || reg.name || 'N/A'}</td>
                             <td>${reg.email || 'N/A'}</td>
                             <td>${reg.mobile || 'N/A'}</td>
                             <td>${reg.prnNumber || 'N/A'}</td>
@@ -1026,7 +1026,7 @@ useEffect(() => {
                                 onClick={() => handleUserClick(registration)}
                                 className="text-indigo-600 hover:text-indigo-900 font-medium"
                               >
-                                {registration.fullName}
+                                {registration.fullName || registration.name}
                               </button>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">

@@ -42,8 +42,11 @@ const WorkshopManagement = ({ registrations }) => {
     participantId: false,
     qrCodeURL: true,
     certificateURL: false,
-    localFilePath: false
+    localFilePath: false,
+    exactQRFilePath: true
   });
+  const [customPathPrefix, setCustomPathPrefix] = useState('./QR_Codes');
+  const [exportFormat, setExportFormat] = useState('csv'); // 'csv' or 'txt'
   
   const { success: showSuccess, error: showError, info: showInfo } = useToast();
 
@@ -102,9 +105,9 @@ const WorkshopManagement = ({ registrations }) => {
     // Apply search filter
     if (searchTerm) {
       filtered = filtered.filter(participant =>
-        participant.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        participant.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        participant.college.toLowerCase().includes(searchTerm.toLowerCase())
+        (participant.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (participant.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (participant.college || '').toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
 
@@ -184,42 +187,52 @@ const WorkshopManagement = ({ registrations }) => {
       setUploadProgress(0);
       setUploadedImageUrl(null);
       
-      // Step 1: Upload certificate to Cloudinary (30%)
+      // Find the current participant to check existing IDs
+      const currentParticipant = workshopParticipants.find(p => p.id === registrationId);
+      
+      // Step 1: Upload certificate to Cloudinary (50%)
       setUploadProgress(10);
       const certificateURL = await uploadToCloudinary(file, `certificates/${selectedWorkshop}`);
-      setUploadProgress(30);
+      setUploadProgress(50);
       setUploadedImageUrl(certificateURL);
       
-      // Step 2: Generate unique participant ID (50%)
-      const participantId = `INVICTA_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      setUploadProgress(50);
+      // Prepare update data - only update certificate, preserve existing IDs
+      const updateData = {
+        certificateURL,
+        certificateUploadedAt: new Date()
+      };
       
-      // Step 3: Generate QR code (70%)
-      const qrCodeData = `${window.location.origin}/certificate-validation/${participantId}`;
-      const qrCodeURL = await QRCode.toDataURL(qrCodeData, {
-        width: 300,
-        margin: 2,
-        color: {
-          dark: '#000000',
-          light: '#FFFFFF'
-        }
-      });
-      setUploadProgress(70);
+      let participantId = currentParticipant?.participantId;
+      let qrCloudinaryURL = currentParticipant?.qrCodeURL;
       
-      // Step 4: Upload QR code to Cloudinary (90%)
-      // Convert data URL to blob for upload
-      const qrBlob = await fetch(qrCodeURL).then(r => r.blob());
-      const qrFile = new File([qrBlob], `${participantId}_qr.png`, { type: 'image/png' });
-      const qrCloudinaryURL = await uploadToCloudinary(qrFile, `qr-codes/${selectedWorkshop}`);
-      setUploadProgress(90);
+      // Only generate new participant ID and QR if they don't exist
+      if (!participantId) {
+        // Step 2: Generate unique participant ID (70%)
+        participantId = `INVICTA_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        updateData.participantId = participantId;
+        setUploadProgress(70);
+        
+        // Step 3: Generate QR code (90%)
+        const qrCodeData = `${window.location.origin}/certificate-validation/${participantId}`;
+        const qrCodeURL = await QRCode.toDataURL(qrCodeData, {
+          width: 300,
+          margin: 2,
+          color: {
+            dark: '#000000',
+            light: '#FFFFFF'
+          }
+        });
+        
+        // Step 4: Upload QR code to Cloudinary
+        const qrBlob = await fetch(qrCodeURL).then(r => r.blob());
+        const qrFile = new File([qrBlob], `${participantId}_qr.png`, { type: 'image/png' });
+        qrCloudinaryURL = await uploadToCloudinary(qrFile, `qr-codes/${selectedWorkshop}`);
+        updateData.qrCodeURL = qrCloudinaryURL;
+        setUploadProgress(90);
+      }
       
       // Step 5: Update Firebase (100%)
-      await updateDoc(doc(db, 'registrations', registrationId), {
-        certificateURL,
-        participantId,
-        qrCodeURL: qrCloudinaryURL,
-        certificateUploadedAt: new Date()
-      });
+      await updateDoc(doc(db, 'registrations', registrationId), updateData);
       setUploadProgress(100);
       
       // Update local state
@@ -227,9 +240,9 @@ const WorkshopManagement = ({ registrations }) => {
         prev.map(reg =>
           reg.id === registrationId ? { 
             ...reg, 
-            certificateURL, 
-            participantId, 
-            qrCodeURL: qrCloudinaryURL 
+            certificateURL,
+            ...(updateData.participantId && { participantId: updateData.participantId }),
+            ...(updateData.qrCodeURL && { qrCodeURL: updateData.qrCodeURL })
           } : reg
         )
       );
@@ -410,8 +423,8 @@ const WorkshopManagement = ({ registrations }) => {
     }
   };
 
-  // Generate CSV for present participants with configurable fields
-  const generateCSV = async () => {
+  // Generate CSV/TXT for present participants with configurable fields
+  const generateExport = async () => {
     try {
       setGeneratingCSV(true);
       
@@ -444,7 +457,8 @@ const WorkshopManagement = ({ registrations }) => {
         participantId: 'Participant ID',
         qrCodeURL: 'QR Code Link',
         certificateURL: 'Certificate Link',
-        localFilePath: 'Local File Path'
+        localFilePath: 'Local File Path',
+        exactQRFilePath: 'Exact QR File Path'
       };
       
       // Create CSV headers
@@ -461,7 +475,13 @@ const WorkshopManagement = ({ registrations }) => {
             // Generate local file path ending with participant name.png
             const participantName = (participant.name || participant.fullName || 'Participant')
               .replace(/[^a-zA-Z0-9]/g, '_');
-            value = `./QR_Codes/${participantName}.png`;
+            value = `${customPathPrefix}/${participantName}.png`;
+          } else if (field === 'exactQRFilePath') {
+            // Generate exact QR file path matching the ZIP generation pattern
+            const participantName = (participant.name || participant.fullName || 'Participant')
+              .replace(/[^a-zA-Z0-9]/g, '_');
+            const attendanceStatus = participant.attendance || 'unknown';
+            value = `${customPathPrefix}/${participantName}_${attendanceStatus}_QR.png`;
           } else {
             value = participant[field] || 'N/A';
           }
@@ -472,23 +492,37 @@ const WorkshopManagement = ({ registrations }) => {
         })
       );
       
-      // Combine headers and rows
-      const csvContent = [headers, ...rows]
-        .map(row => row.join(','))
-        .join('\n');
+      // Generate content based on format
+      let content, mimeType, fileExtension;
       
-      // Download CSV
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      if (exportFormat === 'csv') {
+        // CSV format
+        content = [headers, ...rows]
+          .map(row => row.join(','))
+          .join('\n');
+        mimeType = 'text/csv;charset=utf-8;';
+        fileExtension = 'csv';
+      } else {
+        // Text format - tab separated
+        content = [headers, ...rows]
+          .map(row => row.join('\t'))
+          .join('\n');
+        mimeType = 'text/plain;charset=utf-8;';
+        fileExtension = 'txt';
+      }
+      
+      // Download file
+      const blob = new Blob([content], { type: mimeType });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${selectedWorkshop}_present_participants_${new Date().toISOString().split('T')[0]}.csv`;
+      a.download = `${selectedWorkshop}_present_participants_${new Date().toISOString().split('T')[0]}.${fileExtension}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
       
-      showSuccess(`CSV exported successfully with ${presentParticipants.length} participants`);
+      showSuccess(`${exportFormat.toUpperCase()} exported successfully with ${presentParticipants.length} participants`);
       setShowExportModal(false);
     } catch (error) {
       console.error('Error generating CSV:', error);
@@ -784,7 +818,7 @@ const WorkshopManagement = ({ registrations }) => {
         /* Workshop Participants List */
         <div>
           {/* Back Button and Workshop Header */}
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 space-y-4 sm:space-y-0">
             <div className="flex items-center space-x-4">
               <button
                 onClick={() => setSelectedWorkshop(null)}
@@ -793,57 +827,62 @@ const WorkshopManagement = ({ registrations }) => {
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
                 </svg>
-                <span>Back to Workshops</span>
+                <span className="hidden sm:inline">Back to Workshops</span>
+                <span className="sm:hidden">Back</span>
               </button>
               <div>
-                <h3 className="text-xl font-bold text-gray-900">{selectedWorkshop}</h3>
-                <p className="text-gray-600">{filteredParticipants.length} participants</p>
+                <h3 className="text-lg sm:text-xl font-bold text-gray-900">{selectedWorkshop}</h3>
+                <p className="text-sm sm:text-base text-gray-600">{filteredParticipants.length} participants</p>
               </div>
             </div>
             <div className="flex flex-col space-y-2">
-              <div className="flex space-x-3">
+              <div className="flex flex-wrap gap-2 sm:gap-3">
                 <button
                   onClick={() => setShowAddMemberModal(true)}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
+                  className="bg-blue-600 text-white px-3 py-2 sm:px-4 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center sm:space-x-2"
+                  title="Add Member"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                   </svg>
-                  <span>Add Member</span>
+                  <span className="hidden sm:inline ml-2">Add Member</span>
                 </button>
                 <button
                   onClick={generateBulkQRs}
                   disabled={generatingQRs}
-                  className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors flex items-center space-x-2 disabled:opacity-50"
+                  className="bg-purple-600 text-white px-3 py-2 sm:px-4 rounded-lg hover:bg-purple-700 transition-colors flex items-center justify-center sm:space-x-2 disabled:opacity-50"
+                  title={generatingQRs ? 'Generating...' : 'Generate QRs'}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
                   </svg>
-                  <span>{generatingQRs ? 'Generating...' : 'Generate QRs'}</span>
+                  <span className="hidden sm:inline ml-2">{generatingQRs ? 'Generating...' : 'Generate QRs'}</span>
                 </button>
                 <button
                   onClick={() => setShowExportModal(true)}
-                  className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2"
+                  className="bg-green-600 text-white px-3 py-2 sm:px-4 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center sm:space-x-2"
+                  title="Export Data"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                  <span>Export CSV</span>
+                  </svg>
+                  <span className="hidden sm:inline ml-2">Export Data</span>
                 </button>
                 <button
                   onClick={downloadQRZip}
                   disabled={generatingQRs}
-                  className="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 transition-colors flex items-center space-x-2 disabled:opacity-50"
+                  className="bg-orange-600 text-white px-3 py-2 sm:px-4 rounded-lg hover:bg-orange-700 transition-colors flex items-center justify-center sm:space-x-2 disabled:opacity-50"
+                  title="Download QR ZIP"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3M7 13l3 3 7-7" />
                   </svg>
-                  <span>Download All QR ZIP</span>
+                  <span className="hidden sm:inline ml-2">Download QR ZIP</span>
                 </button>
               </div>
               
               {/* Debug Info */}
-              <div className="space-y-1">
+              <div className="space-y-1 hidden sm:block">
                 <div className="text-sm text-gray-600 bg-gray-100 px-3 py-1 rounded">
                   Present: {workshopParticipants.filter(p => p.attendance === 'present').length} | 
                   Absent: {workshopParticipants.filter(p => p.attendance === 'absent').length} | 
@@ -853,6 +892,15 @@ const WorkshopManagement = ({ registrations }) => {
                 <div className="text-sm text-blue-600 bg-blue-50 px-3 py-1 rounded">
                   QR Codes Generated: {workshopParticipants.filter(p => p.qrCodeURL).length} | 
                   Participant IDs: {workshopParticipants.filter(p => p.participantId).length}
+                </div>
+              </div>
+              
+              {/* Mobile Debug Info - Compact */}
+              <div className="sm:hidden">
+                <div className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded text-center">
+                  P: {workshopParticipants.filter(p => p.attendance === 'present').length} | 
+                  A: {workshopParticipants.filter(p => p.attendance === 'absent').length} | 
+                  Total: {workshopParticipants.length}
                 </div>
               </div>
             </div>
@@ -1326,7 +1374,7 @@ const WorkshopManagement = ({ registrations }) => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-semibold text-gray-900">Export CSV - Present Participants</h3>
+              <h3 className="text-xl font-semibold text-gray-900">Export Data - Present Participants</h3>
               <button
                 onClick={() => setShowExportModal(false)}
                 className="text-gray-400 hover:text-gray-600"
@@ -1387,7 +1435,8 @@ const WorkshopManagement = ({ registrations }) => {
                     participantId: 'Participant ID',
                     qrCodeURL: 'QR Code Link (Cloudinary)',
                     certificateURL: 'Certificate Link',
-                    localFilePath: 'Local File Path'
+                    localFilePath: 'Local File Path',
+                    exactQRFilePath: 'Exact QR File Path'
                   };
                   
                   return (
@@ -1423,7 +1472,12 @@ const WorkshopManagement = ({ registrations }) => {
                         )}
                         {field === 'localFilePath' && (
                           <p className="text-xs text-gray-500 mt-1">
-                            Local file path format: ./QR_Codes/ParticipantName.png
+                            Simple format: {customPathPrefix}/ParticipantName.png
+                          </p>
+                        )}
+                        {field === 'exactQRFilePath' && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            Exact format: {customPathPrefix}/ParticipantName_AttendanceStatus_QR.png
                           </p>
                         )}
                       </div>
@@ -1441,6 +1495,57 @@ const WorkshopManagement = ({ registrations }) => {
               )}
             </div>
             
+            {/* Export Configuration */}
+            <div className="space-y-4 mt-6 pt-4 border-t">
+              <h4 className="text-lg font-medium text-gray-900">Export Configuration</h4>
+              
+              {/* Custom Path Prefix */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  File Path Prefix
+                </label>
+                <input
+                  type="text"
+                  value={customPathPrefix}
+                  onChange={(e) => setCustomPathPrefix(e.target.value)}
+                  placeholder="e.g., ./QR_Codes or /path/to/files"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  This prefix will be used in file path fields. Example: {customPathPrefix}/ParticipantName_present_QR.png
+                </p>
+              </div>
+              
+              {/* Export Format */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Export Format
+                </label>
+                <div className="flex space-x-4">
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      value="csv"
+                      checked={exportFormat === 'csv'}
+                      onChange={(e) => setExportFormat(e.target.value)}
+                      className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-700">CSV (Comma-separated)</span>
+                  </label>
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      value="txt"
+                      checked={exportFormat === 'txt'}
+                      onChange={(e) => setExportFormat(e.target.value)}
+                      className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-700">TXT (Tab-separated)</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+            
             <div className="flex justify-end space-x-3 mt-8 pt-4 border-t">
               <button
                 onClick={() => setShowExportModal(false)}
@@ -1449,7 +1554,7 @@ const WorkshopManagement = ({ registrations }) => {
                 Cancel
               </button>
               <button
-                onClick={generateCSV}
+                onClick={generateExport}
                 disabled={generatingCSV || Object.values(exportFields).every(selected => !selected)}
                 className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
               >
@@ -1459,7 +1564,7 @@ const WorkshopManagement = ({ registrations }) => {
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                <span>{generatingCSV ? 'Generating...' : 'Export CSV'}</span>
+                <span>{generatingCSV ? 'Generating...' : `Export ${exportFormat.toUpperCase()}`}</span>
               </button>
             </div>
           </div>
