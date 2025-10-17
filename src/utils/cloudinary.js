@@ -4,6 +4,22 @@ const CLOUDINARY_UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET |
 const CLOUDINARY_CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || 'dhsu5h91l';
 
 /**
+ * Sanitize folder name for Cloudinary
+ * @param {string} folderName - The folder name to sanitize
+ * @returns {string} - Sanitized folder name
+ */
+export const sanitizeFolderName = (folderName) => {
+  if (!folderName) return '';
+  
+  return folderName
+    .replace(/[&]/g, 'and')           // Replace & with 'and'
+    .replace(/[^a-zA-Z0-9\-_\/]/g, '_') // Replace special chars with underscore
+    .replace(/_{2,}/g, '_')           // Replace multiple underscores with single
+    .replace(/^_|_$/g, '')            // Remove leading/trailing underscores
+    .toLowerCase();                   // Convert to lowercase
+};
+
+/**
  * Upload image to Cloudinary
  * @param {File} file - The image file to upload
  * @param {string} folder - Cloudinary folder name (optional)

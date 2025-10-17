@@ -6,7 +6,7 @@ import { useToast } from '../contexts/ToastContext';
 import UserDetailsModal from './UserDetailsModal';
 import QRCode from 'qrcode';
 import JSZip from 'jszip';
-import { uploadToCloudinary, cloudinaryConfig } from '../utils/cloudinary';
+import { uploadToCloudinary, cloudinaryConfig, sanitizeFolderName } from '../utils/cloudinary';
 
 const WorkshopManagement = ({ registrations }) => {
   const [selectedWorkshop, setSelectedWorkshop] = useState(null);
@@ -192,7 +192,7 @@ const WorkshopManagement = ({ registrations }) => {
       
       // Step 1: Upload certificate to Cloudinary (50%)
       setUploadProgress(10);
-      const certificateURL = await uploadToCloudinary(file, `certificates/${selectedWorkshop}`);
+      const certificateURL = await uploadToCloudinary(file, `certificates/${sanitizeFolderName(selectedWorkshop)}`);
       setUploadProgress(50);
       setUploadedImageUrl(certificateURL);
       
@@ -226,7 +226,7 @@ const WorkshopManagement = ({ registrations }) => {
         // Step 4: Upload QR code to Cloudinary
         const qrBlob = await fetch(qrCodeURL).then(r => r.blob());
         const qrFile = new File([qrBlob], `${participantId}_qr.png`, { type: 'image/png' });
-        qrCloudinaryURL = await uploadToCloudinary(qrFile, `qr-codes/${selectedWorkshop}`);
+        qrCloudinaryURL = await uploadToCloudinary(qrFile, `qr-codes/${sanitizeFolderName(selectedWorkshop)}`);
         updateData.qrCodeURL = qrCloudinaryURL;
         setUploadProgress(90);
       }
@@ -609,7 +609,7 @@ const WorkshopManagement = ({ registrations }) => {
         // Convert data URL to blob for upload
         const qrBlob = await fetch(qrCodeDataURL).then(r => r.blob());
         const qrFile = new File([qrBlob], `${participantId}_qr.png`, { type: 'image/png' });
-        const qrCloudinaryURL = await uploadToCloudinary(qrFile, `qr-codes/${selectedWorkshop}`);
+        const qrCloudinaryURL = await uploadToCloudinary(qrFile, `qr-codes/${sanitizeFolderName(selectedWorkshop)}`);
         
         // Update Firebase if participant ID was generated
         if (!participant.participantId) {
@@ -679,7 +679,7 @@ const WorkshopManagement = ({ registrations }) => {
       // Upload QR to Cloudinary
       const qrBlob = await fetch(qrCodeDataURL).then(r => r.blob());
       const qrFile = new File([qrBlob], `${participantId}_qr.png`, { type: 'image/png' });
-      const qrCloudinaryURL = await uploadToCloudinary(qrFile, `qr-codes/${selectedWorkshop}`);
+      const qrCloudinaryURL = await uploadToCloudinary(qrFile, `qr-codes/${sanitizeFolderName(selectedWorkshop)}`);
       
       // Update Firebase
       const updateData = {
